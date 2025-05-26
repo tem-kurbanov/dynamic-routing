@@ -1,0 +1,60 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Release",
+            "type": "shell",
+            "command": "cmake --build ${workspaceFolder}/cmake-build-release --config Release -j $(nproc)",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Build Debug",
+            "type": "shell",
+            "command": "cmake --build ${workspaceFolder}/cmake-build-Debug --config Debug -j $(nproc)",
+            "group": "build",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Configure Release",
+            "type": "shell",
+            "command": "cmake -B ${workspaceFolder}/cmake-build-release -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=\"-O3 -march=native -DNDEBUG\"",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Configure Debug",
+            "type": "shell",
+            "command": "cmake -B ${workspaceFolder}/cmake-build-Debug -DCMAKE_BUILD_TYPE=Debug",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Clean",
+            "type": "shell",
+            "command": "rm -rf ${workspaceFolder}/cmake-build-*",
+            "group": "build"
+        }
+    ]
+}

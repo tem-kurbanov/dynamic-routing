@@ -1,0 +1,44 @@
+[
+{
+  "directory": "/home/tim/Work/own/phd/phdproject/mas_planner/build",
+  "command": "/usr/bin/clang++ -DUNIX -I/usr/share/sumo/src -I/home/tim/Work/own/phd/phdproject/xgboost/include -g -std=gnu++20 -fopenmp=libomp -o CMakeFiles/MASHierarchicalSystem.dir/main.cpp.o -c /home/tim/Work/own/phd/phdproject/mas_planner/main.cpp",
+  "file": "/home/tim/Work/own/phd/phdproject/mas_planner/main.cpp",
+  "output": "CMakeFiles/MASHierarchicalSystem.dir/main.cpp.o"
+},
+{
+  "directory": "/home/tim/Work/own/phd/phdproject/mas_planner/build",
+  "command": "/usr/bin/clang++ -DUNIX -I/usr/share/sumo/src -I/home/tim/Work/own/phd/phdproject/xgboost/include -g -std=gnu++20 -fopenmp=libomp -o CMakeFiles/MASHierarchicalSystem.dir/CoverEdge.cpp.o -c /home/tim/Work/own/phd/phdproject/mas_planner/CoverEdge.cpp",
+  "file": "/home/tim/Work/own/phd/phdproject/mas_planner/CoverEdge.cpp",
+  "output": "CMakeFiles/MASHierarchicalSystem.dir/CoverEdge.cpp.o"
+},
+{
+  "directory": "/home/tim/Work/own/phd/phdproject/mas_planner/build",
+  "command": "/usr/bin/clang++ -DUNIX -I/usr/share/sumo/src -I/home/tim/Work/own/phd/phdproject/xgboost/include -g -std=gnu++20 -fopenmp=libomp -o CMakeFiles/MASHierarchicalSystem.dir/CoverGraph.cpp.o -c /home/tim/Work/own/phd/phdproject/mas_planner/CoverGraph.cpp",
+  "file": "/home/tim/Work/own/phd/phdproject/mas_planner/CoverGraph.cpp",
+  "output": "CMakeFiles/MASHierarchicalSystem.dir/CoverGraph.cpp.o"
+},
+{
+  "directory": "/home/tim/Work/own/phd/phdproject/mas_planner/build",
+  "command": "/usr/bin/clang++ -DUNIX -I/usr/share/sumo/src -I/home/tim/Work/own/phd/phdproject/xgboost/include -g -std=gnu++20 -fopenmp=libomp -o CMakeFiles/MASHierarchicalSystem.dir/TrafficEstimator.cpp.o -c /home/tim/Work/own/phd/phdproject/mas_planner/TrafficEstimator.cpp",
+  "file": "/home/tim/Work/own/phd/phdproject/mas_planner/TrafficEstimator.cpp",
+  "output": "CMakeFiles/MASHierarchicalSystem.dir/TrafficEstimator.cpp.o"
+},
+{
+  "directory": "/home/tim/Work/own/phd/phdproject/mas_planner/build",
+  "command": "/usr/bin/clang++ -DUNIX -I/usr/share/sumo/src -I/home/tim/Work/own/phd/phdproject/xgboost/include -g -std=gnu++20 -fopenmp=libomp -o CMakeFiles/MASHierarchicalSystem.dir/Router.cpp.o -c /home/tim/Work/own/phd/phdproject/mas_planner/Router.cpp",
+  "file": "/home/tim/Work/own/phd/phdproject/mas_planner/Router.cpp",
+  "output": "CMakeFiles/MASHierarchicalSystem.dir/Router.cpp.o"
+},
+{
+  "directory": "/home/tim/Work/own/phd/phdproject/mas_planner/build",
+  "command": "/usr/bin/clang++ -DUNIX -I/usr/share/sumo/src -I/home/tim/Work/own/phd/phdproject/xgboost/include -g -std=gnu++20 -fopenmp=libomp -o CMakeFiles/MASHierarchicalSystem.dir/SpeedEstimator.cpp.o -c /home/tim/Work/own/phd/phdproject/mas_planner/SpeedEstimator.cpp",
+  "file": "/home/tim/Work/own/phd/phdproject/mas_planner/SpeedEstimator.cpp",
+  "output": "CMakeFiles/MASHierarchicalSystem.dir/SpeedEstimator.cpp.o"
+},
+{
+  "directory": "/home/tim/Work/own/phd/phdproject/mas_planner/build",
+  "command": "/usr/bin/clang++ -DUNIX -I/usr/share/sumo/src -I/home/tim/Work/own/phd/phdproject/xgboost/include -g -std=gnu++20 -fopenmp=libomp -o CMakeFiles/MASHierarchicalSystem.dir/FuelEstimator.cpp.o -c /home/tim/Work/own/phd/phdproject/mas_planner/FuelEstimator.cpp",
+  "file": "/home/tim/Work/own/phd/phdproject/mas_planner/FuelEstimator.cpp",
+  "output": "CMakeFiles/MASHierarchicalSystem.dir/FuelEstimator.cpp.o"
+}
+]
