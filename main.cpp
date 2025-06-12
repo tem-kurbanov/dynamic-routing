@@ -434,7 +434,8 @@ void synchronizePositions(const Graph &originalGraph, const std::unordered_set<i
 }
 
 void masterProcess(const Graph &originalGraph, const std::string &scenarioPath, const std::string &tripInfoFileName,
-                   const std::string &edgeDataFileName, int syncIntervalLength, int simulationEnd) {
+                   const std::string &edgeDataFileName, const std::string &vehRoutesFileName, int syncIntervalLength,
+                   int simulationEnd) {
     // Main process that will control SUMO
     int reroutingInterval = 60;
     // Frequent synchronization with SUMO for purposes of reactive rerouting
@@ -449,10 +450,12 @@ void masterProcess(const Graph &originalGraph, const std::string &scenarioPath, 
         tripInfoFileName.empty() ? scenarioPath + "/tripinfo.xml" : scenarioPath + "/" + tripInfoFileName;
     std::string edgeDataPath =
         edgeDataFileName.empty() ? scenarioPath + "/edgedata.xml" : scenarioPath + "/" + edgeDataFileName;
+    std::string vehRoutesPath =
+        vehRoutesFileName.empty() ? scenarioPath + "/vehroutes.xml" : scenarioPath + "/" + vehRoutesFileName;
 
     // Start SUMO simulation
-    libtraci::Simulation::start(
-        {"sumo", "-c", configPath, "--tripinfo-output", tripInfoPath, "--edgedata-output", edgeDataPath, "--start"});
+    libtraci::Simulation::start({"sumo", "-c", configPath, "--tripinfo-output", tripInfoPath, "--edgedata-output",
+                                 edgeDataPath, "--vehroute-output", vehRoutesPath, "--start"});
 
     int numEdges = originalGraph.getNumEdges();
 
@@ -653,6 +656,7 @@ int main(int argc, char *argv[]) {
     int synchronizationInterval = 0;
     std::string tripInfoFileName = "";
     std::string edgeDataFileName = "";
+    std::string vehRoutesFileName = "";  // Added vehroutes filename
     std::string logLevel = "info";
     int simulationEnd = -1;       // Negative value indicates no end time specified
     double epsilon = 1.0;         // Default epsilon value
@@ -670,6 +674,7 @@ int main(int argc, char *argv[]) {
                       << "  --sync <interval>     Synchronization interval (required)\n"
                       << "  --tripinfo <name>     Name of trip info file (optional, defaults to tripinfo.xml)\n"
                       << "  --edgedata <name>     Name of edge data file (optional, defaults to edgedata.xml)\n"
+                      << "  --vehroutes <name>    Name of vehicle routes file (optional, defaults to vehroutes.xml)\n"
                       << "  --end <steps>         Simulation end time in steps (optional, if not specified runs until "
                          "completion)\n"
                       << "  --epsilon <value>     Epsilon value for MLS search (optional, must be between 0 and 1, "
@@ -691,6 +696,8 @@ int main(int argc, char *argv[]) {
             tripInfoFileName = argv[++i];
         } else if (arg == "--edgedata" && i + 1 < argc) {
             edgeDataFileName = argv[++i];
+        } else if (arg == "--vehroutes" && i + 1 < argc) {
+            vehRoutesFileName = argv[++i];
         } else if (arg == "--end" && i + 1 < argc) {
             simulationEnd = std::stoi(argv[++i]);
         } else if (arg == "--epsilon" && i + 1 < argc) {
@@ -741,8 +748,8 @@ int main(int argc, char *argv[]) {
     MPI_Buffer_attach(buff.data(), bufferSize);
 
     if (worldRank == 0) {
-        masterProcess(originalGraph, scenarioPath, tripInfoFileName, edgeDataFileName, synchronizationInterval,
-                      simulationEnd);
+        masterProcess(originalGraph, scenarioPath, tripInfoFileName, edgeDataFileName, vehRoutesFileName,
+                      synchronizationInterval, simulationEnd);
     } else if (worldRank > 0 && worldRank <= NUM_AGENTS) {
         // ACU processes
         // Create Traffic estimator

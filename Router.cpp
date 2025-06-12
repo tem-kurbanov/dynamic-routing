@@ -1013,6 +1013,7 @@ std::vector<routeData> Router::proactivelyRoute(
                 std::vector<int> seq(clusterSequence);
                 seq.push_back(n);
                 exploredSequences[vehID][seq] = true;
+                storedLabels[vehID].erase(seq);
                 seq.clear();
 
                 // Check if there is another cluster to send the request to
@@ -1084,7 +1085,6 @@ std::vector<routeData> Router::proactivelyRoute(
                             sendRouteNotFound(seq.back(), vehID, seq);
                             aggregatedSolutions.erase(vehID);
                             exploredSequences.erase(vehID);
-                            storedLabels.erase(vehID);
                             expectedReturns.erase(vehID);
                             goalEdges.erase(vehID);
                         }
