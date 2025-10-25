@@ -1,3 +1,11 @@
 /build/
 /cmake-build-debug/
 /cmake-build-release/
+
+*.idx
+
+*.json
+
+out/
+
+*.log
