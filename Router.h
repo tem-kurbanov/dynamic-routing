@@ -161,7 +161,7 @@ class Router {
 
     // Internal hyperparameters
     /// Congestion threshold when reactive rerouting is triggered
-    double mCongestionThreshold = 0.7;
+    double mCongestionThreshold = 0.8;
     /// Current interval of the simulation
     int mCurrentInterval = 0;
     /// Number of intervals that have passed since the simulation start
@@ -459,3 +459,4 @@ class Router {
 };
 
 #endif  // HIERARCHICALSYSTEM_ROUTER_H
+

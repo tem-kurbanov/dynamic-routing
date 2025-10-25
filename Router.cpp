@@ -1085,6 +1085,7 @@ std::vector<routeData> Router::proactivelyRoute(
                             sendRouteNotFound(seq.back(), vehID, seq);
                             aggregatedSolutions.erase(vehID);
                             exploredSequences.erase(vehID);
+                            //storedLabels.erase(vehID);
                             expectedReturns.erase(vehID);
                             goalEdges.erase(vehID);
                         }
@@ -2103,18 +2104,23 @@ Router::distributedHierarchicalSearch(
 
             int nextNode = rNextEdge.getEndNode();
 
-            // Check for loops
+            // Check for twice visited simple edges
+            std::unordered_set<int> visitedEdges;
+            bool twiceVisited = false;
             auto tempLabel = pCurrentLabel;
-            bool looped = false;
             while (tempLabel->pParent != nullptr) {
-                if (tempLabel->node == nextNode) {
-                    looped = true;
-                    break;
+                for (int edge : tempLabel->usedEdge->getInsideEdges()) {
+                    if (visitedEdges.count(edge) > 0) {
+                        twiceVisited = true;
+                        break;
+                    }
+                    visitedEdges.insert(edge);
                 }
+
                 tempLabel = tempLabel->pParent;
             }
 
-            if (looped) {
+            if (twiceVisited) {
                 continue;
             }
 
@@ -2143,6 +2149,9 @@ Router::distributedHierarchicalSearch(
             bool congested = false;
             // Prepare planning parameters for the next edge
             for (int e : rNextEdge.getInsideEdges()) {
+                if (mOriginalGraph.getEdge(e).getLength() < 15) {
+                    continue;
+                }
                 // Get the density of the edge if interval exists
                 int currentInterval = timeToInterval(mCurrentTime + pCurrentLabel->parameters[1]);
                 double dens = 0;
@@ -2150,7 +2159,7 @@ Router::distributedHierarchicalSearch(
                     dens = mEdgeDensities[e][currentInterval];
                 }
 
-                if (dens > mCongestionThreshold) {
+                if (dens > 0.95) {
                     congested = true;
                     break;
                 }
@@ -2333,6 +2342,9 @@ std::set<std::shared_ptr<hierLabel>, hierLexCompare> Router::completeHierarchica
                         bool congested = false;
                         // Prepare planning parameters for the next edge
                         for (int e : currentBackwardLabel->usedEdge->getInsideEdges()) {
+                            if (mOriginalGraph.getEdge(e).getLength() < 15) {
+                                continue;
+                            }
                             int currentInterval = timeToInterval(mCurrentTime + pCurrentLabel->parameters[1]);
                             double dens = 0;
                             if (currentInterval < mEdgeDensities[e].size()) {
@@ -2340,7 +2352,7 @@ std::set<std::shared_ptr<hierLabel>, hierLexCompare> Router::completeHierarchica
                             }
                             // double dens = extractDynamicParameters(mOriginalGraph.getEdge(e),
                             //                                      mCurrentTime + pCurrentLabel->parameters[1])[3];
-                            if (dens > mCongestionThreshold) {
+                            if (dens > 0.95) {
                                 congested = true;
                                 break;
                             }
@@ -2381,18 +2393,23 @@ std::set<std::shared_ptr<hierLabel>, hierLexCompare> Router::completeHierarchica
 
             int nextNode = rNextEdge.getEndNode();
 
-            // Check for loops
+            // Check for twice visited simple edges
+            std::unordered_set<int> visitedEdges;
+            bool twiceVisited = false;
             auto tempLabel = pCurrentLabel;
-            bool looped = false;
             while (tempLabel->pParent != nullptr) {
-                if (tempLabel->node == nextNode) {
-                    looped = true;
-                    break;
+                for (int edge : tempLabel->usedEdge->getInsideEdges()) {
+                    if (visitedEdges.count(edge) > 0) {
+                        twiceVisited = true;
+                        break;
+                    }
+                    visitedEdges.insert(edge);
                 }
+
                 tempLabel = tempLabel->pParent;
             }
 
-            if (looped) {
+            if (twiceVisited) {
                 continue;
             }
 
@@ -2853,3 +2870,4 @@ void Router::logError(const std::string &error) const {
         std::cerr << "ERR|" << mClusterID << "|" << error << std::endl;
     }
 }
+
