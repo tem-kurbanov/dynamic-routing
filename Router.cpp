@@ -1,3 +1,7 @@
+/**
+ * @file Router.cpp
+ * @brief Implementation of distributed dynamic routing with hierarchical MLS and MPI.
+ */
 #include "Router.h"
 
 #include <mpi.h>
@@ -1085,7 +1089,7 @@ std::vector<routeData> Router::proactivelyRoute(
                             sendRouteNotFound(seq.back(), vehID, seq);
                             aggregatedSolutions.erase(vehID);
                             exploredSequences.erase(vehID);
-                            //storedLabels.erase(vehID);
+                            // storedLabels.erase(vehID);
                             expectedReturns.erase(vehID);
                             goalEdges.erase(vehID);
                         }
@@ -2870,4 +2874,3 @@ void Router::logError(const std::string &error) const {
         std::cerr << "ERR|" << mClusterID << "|" << error << std::endl;
     }
 }
-

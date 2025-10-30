@@ -1,3 +1,7 @@
+/**
+ * @file FuelEstimator.cpp
+ * @brief XGBoost-based fuel consumption estimator implementation.
+ */
 #include "FuelEstimator.h"
 
 #include <algorithm>

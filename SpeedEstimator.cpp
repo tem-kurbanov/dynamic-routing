@@ -1,3 +1,7 @@
+/**
+ * @file SpeedEstimator.cpp
+ * @brief XGBoost-based traffic speed estimator implementation.
+ */
 #include "SpeedEstimator.h"
 
 #include <algorithm>

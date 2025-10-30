@@ -1,3 +1,7 @@
+/**
+ * @file CoverEdge.cpp
+ * @brief Implementation of CoverEdge methods for hierarchical cover edges.
+ */
 //
 // Created by Tim on 20.03.2024.
 //

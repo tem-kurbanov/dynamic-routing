@@ -1,3 +1,7 @@
+/**
+ * @file TrafficEstimator.cpp
+ * @brief XGBoost-based traffic density estimator implementation.
+ */
 //
 // Created by Tim on 20.03.2024.
 //

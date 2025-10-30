@@ -1,3 +1,10 @@
+/**
+ * @file main.cpp
+ * @brief Entry point: orchestrates SUMO simulation and distributed routing via MPI.
+ *
+ * Master process controls SUMO and synchronization; ACU processes handle routing
+ * using hierarchical MLS with dynamic estimators.
+ */
 #include <libsumo/libtraci.h>
 #include <mpi.h>
 #include <unistd.h>

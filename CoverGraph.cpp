@@ -1,3 +1,7 @@
+/**
+ * @file CoverGraph.cpp
+ * @brief Implementation of the hierarchical cover graph construction and utilities.
+ */
 #include "CoverGraph.h"
 
 #include <algorithm>
