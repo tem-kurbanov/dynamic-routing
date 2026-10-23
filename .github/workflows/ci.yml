@@ -18,7 +18,7 @@ jobs:
           CXXFLAGS: -fsanitize=address,undefined -fno-omit-frame-pointer
   linux-smoke:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install runtime and development packages
@@ -38,6 +38,9 @@ jobs:
           cmake --build build --parallel 2
       - name: CLI, regression and xgrid smoke checks
         run: ctest --test-dir build --output-on-failure
+        env:
+          # Functional MPI tests need 2-3 processes even on a one-core runner.
+          OMPI_MCA_rmaps_base_oversubscribe: "1"
       - name: Preserve smoke output
         if: always()
         uses: actions/upload-artifact@v4
