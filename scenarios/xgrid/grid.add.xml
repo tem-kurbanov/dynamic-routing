@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<additional xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/additional_file.xsd">
+    <edgeData id="grid20" freq="20" file="./metrics/grid_20.xml" excludeEmpty="true"/>
+    <edgeData id="grid60" freq="60" file="./metrics/grid_60.xml" excludeEmpty="true"/>
+    <edgeData id="grid20_emissions" type="emissions" freq="20" file="./metrics/grid_20_emissions.xml" excludeEmpty="true"/>
+    <edgeData id="grid60_emissions" type="emissions" freq="60" file="./metrics/grid_60_emissions.xml" excludeEmpty="true"/>
+</additional>

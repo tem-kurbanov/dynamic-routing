@@ -7,12 +7,12 @@
  */
 #include <libsumo/libtraci.h>
 #include <mpi.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <cmath>
 #include <csignal>
 #include <fstream>
+#include <filesystem>
 #include <iostream>
 #include <random>
 #include <sstream>
@@ -39,9 +39,7 @@ void logMessage(const std::string &message) {
 }
 
 void logError(const std::string &error) {
-    if (ENABLE_LOGGING) {
-        std::cerr << "ERR|MASTER|" << error << std::endl;
-    }
+    std::cerr << "ERR|MASTER|" << error << std::endl;
 }
 
 std::tuple<std::vector<Node>, std::vector<Edge>> readSumoNetwork(const std::string &nodePath,
@@ -453,16 +451,18 @@ void masterProcess(const Graph &originalGraph, const std::string &scenarioPath, 
     // Construct paths based on scenarioPath
     std::string configPath = scenarioPath + "/scenario.sumocfg";
     // Use the provided filename in the current directory
-    std::string tripInfoPath =
-        tripInfoFileName.empty() ? scenarioPath + "/tripinfo.xml" : scenarioPath + "/" + tripInfoFileName;
-    std::string edgeDataPath =
-        edgeDataFileName.empty() ? scenarioPath + "/edgedata.xml" : scenarioPath + "/" + edgeDataFileName;
-    std::string vehRoutesPath =
-        vehRoutesFileName.empty() ? scenarioPath + "/vehroutes.xml" : scenarioPath + "/" + vehRoutesFileName;
+    auto outputPath = [&scenarioPath](const std::string &name, const std::string &fallback) {
+        std::filesystem::path path = name.empty() ? fallback : name;
+        return (path.is_absolute() ? path : std::filesystem::path(scenarioPath) / path).string();
+    };
+    std::string tripInfoPath = outputPath(tripInfoFileName, "tripinfo.xml");
+    std::string edgeDataPath = outputPath(edgeDataFileName, "edgedata.xml");
+    std::string vehRoutesPath = outputPath(vehRoutesFileName, "vehroutes.xml");
 
     // Start SUMO simulation
     libtraci::Simulation::start({"sumo", "-c", configPath, "--tripinfo-output", tripInfoPath, "--edgedata-output",
-                                 edgeDataPath, "--vehroute-output", vehRoutesPath, "--start"});
+                                 edgeDataPath, "--vehroute-output", vehRoutesPath,
+                                 "--vehroute-output.write-unfinished", "true", "--start"});
 
     int numEdges = originalGraph.getNumEdges();
 
@@ -731,11 +731,10 @@ int main(int argc, char *argv[]) {
     }
 
     // Validate required parameters
-    if (numAgents == 0 || scenarioPath.empty() || synchronizationInterval == 0) {
+    if (numAgents <= 0 || scenarioPath.empty() || synchronizationInterval <= 0) {
         logError("Missing required parameters. Use --help for usage information.");
         return 1;
     }
-    sleep(10);
     // Set up paths
     std::string nodePath = scenarioPath + "/graphs/nodes" + std::to_string(numAgents) + ".csv";
     std::string edgePath = scenarioPath + "/graphs/edges" + std::to_string(numAgents) + ".csv";
@@ -748,6 +747,16 @@ int main(int argc, char *argv[]) {
     MPI_Init(&argc, &argv);
     int worldRank;
     MPI_Comm_rank(MPI_COMM_WORLD, &worldRank);
+    int worldSize;
+    MPI_Comm_size(MPI_COMM_WORLD, &worldSize);
+    if (worldSize != NUM_AGENTS + 1) {
+        if (worldRank == 0) {
+            logError("Expected " + std::to_string(NUM_AGENTS + 1) +
+                     " MPI processes (one master plus --agents workers).");
+        }
+        MPI_Finalize();
+        return 1;
+    }
 
     // Set up MPI buffer
     int bufferSize = 1073741824;
@@ -771,5 +780,9 @@ int main(int argc, char *argv[]) {
         acuProcess(clusterRouter);
     }
 
+    void *detachedBuffer;
+    int detachedSize;
+    MPI_Buffer_detach(&detachedBuffer, &detachedSize);
+    MPI_Finalize();
     return 0;
 }

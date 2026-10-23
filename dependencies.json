@@ -1,0 +1,15 @@
+{
+  "sumo": {
+    "repository": "https://github.com/tem-kurbanov/sumo.git",
+    "commit": "0814800eceddd60f1fb6b41a7d8ec07589eee7ca"
+  },
+  "xgboost": {
+    "version": "3.0.5",
+    "url": "https://github.com/dmlc/xgboost/releases/download/v3.0.5/xgboost-src-3.0.5.tar.gz",
+    "archive_sha256": "0776b59fad03548c447cb1e188469761241ffb3b36154dc8a59735f11d262dc2"
+  },
+  "models": {
+    "xgrid_saved_with": "3.0.0",
+    "intas_saved_with": "3.0.5"
+  }
+}

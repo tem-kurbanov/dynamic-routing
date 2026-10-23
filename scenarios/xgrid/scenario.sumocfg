@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2022-01-29 11:18:10 by Eclipse SUMO sumo Version 1.11.0
+-->
+
+<configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
+
+    <input>
+        <net-file value="grid.net.xml"/>
+        <route-files value="5_typed.rou.xml"/>
+        <!-- <additional-files value="grid.add.xml"/> -->
+    </input>
+
+    <output>
+	    <!-- <tripinfo-output value="standard_tripinfo.xml"/> -->
+        <device.emissions.probability value="1.0"/>
+    </output>
+
+
+    <time>
+        <begin value="0.0"/>
+        <end value="5000.0"/>
+    </time>
+
+    <processing>
+        <route-steps value="200"/>
+        <no-internal-links value="true"/>
+        <ignore-junction-blocker value="20"/>
+        <time-to-teleport value="120.0"/>
+        <time-to-teleport.highways value="0"/>
+        <time-to-teleport.disable-jam value="true"/>
+        <eager-insert value="false"/>
+    </processing>
+
+    <random_number>
+        <random value="false"/>
+    </random_number>
+
+</configuration>

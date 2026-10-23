@@ -1,0 +1,47 @@
+name: Build and regression checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure dependency-free checks
+        run: cmake -S . -B build-tests -DBUILD_ROUTER=OFF
+      - name: Regression and scenario checks
+        run: ctest --test-dir build-tests --output-on-failure
+        env:
+          CXXFLAGS: -fsanitize=address,undefined -fno-omit-frame-pointer
+  linux-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runtime and development packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxerces-c-dev zlib1g-dev libopenmpi-dev openmpi-bin
+      - name: Build pinned SUMO and XGBoost sources
+        run: python3 scripts/build_dependencies.py --fetch --jobs 2
+      - name: Record dependency versions
+        run: |
+          build/deps/sumo/bin/sumo --version
+          mpiexec --version
+          cat dependencies.json
+      - name: Configure and build
+        run: |
+          cmake -S . -B build -C build/deps/paths.cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_SUMO_SMOKE_TEST=ON
+          cmake --build build --parallel 2
+      - name: CLI, regression and xgrid smoke checks
+        run: ctest --test-dir build --output-on-failure
+      - name: Preserve smoke output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xgrid-smoke-output
+          path: build/smoke-output/
+          if-no-files-found: ignore

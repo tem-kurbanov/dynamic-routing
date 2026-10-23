@@ -168,6 +168,9 @@ std::unordered_set<int> Router::selectForRerouting(const std::unordered_set<int>
     std::unordered_set<int> vehiclesToReroute;
     // Select vehicles at random for now
     double reroutePortion = mReroutePortion;
+    if (reroutePortion <= 0) {
+        return vehiclesToReroute;
+    }
     // Iterate over all congested edges
     for (int e : congestedEdges) {
         // Prepare for random selection
@@ -180,18 +183,27 @@ std::unordered_set<int> Router::selectForRerouting(const std::unordered_set<int>
         // Iterate backwards from the congested edge until interval reached
         std::queue<std::pair<int, double>> queue;
         queue.emplace(e, 0);
+        std::unordered_map<int, double> bestTimes{{e, 0}};
 
         while (!queue.empty()) {
             auto [currentEdge, currentTime] = queue.front();
             queue.pop();
 
             for (int nextEdge : mOriginalGraph.getEdge(currentEdge).getIncomingEdges()) {
-                if (congestedEdges.count(e) > 0) {
+                if (!mOriginalGraph.getEdge(nextEdge).inCluster(mClusterID) ||
+                    congestedEdges.count(nextEdge) > 0) {
                     continue;
                 }
 
                 double newTime = currentTime + mOriginalGraph.getEdge(nextEdge).getLength() / mEdgeSpeeds[nextEdge][0];
                 if (newTime < mIntervalLength) {
+                    // Revisit only when a shorter approach is found; this also
+                    // terminates traversal through zero-length cycles.
+                    auto best = bestTimes.find(nextEdge);
+                    if (best != bestTimes.end() && best->second <= newTime) {
+                        continue;
+                    }
+                    bestTimes[nextEdge] = newTime;
                     for (int v : mCurrentEdgePopulation[nextEdge]) {
                         // TODO: think of better selection strategy
                         // Check if the vehicle is expected to go through the congested edge in the next interval
@@ -2515,10 +2527,22 @@ std::vector<routeData> Router::reactivelyReroute(int currentTime) {
 
         // Remove the rerouted vehicles from current flow registry
         for (int i = startingPosition + 1; i < mVehicleRoutes[v].size(); ++i) {
+            int edge = mVehicleRoutes[v][i];
+            if (!mOriginalGraph.getEdge(edge).inCluster(mClusterID)) {
+                continue;
+            }
             int enterInterval = timeToInterval(mVehicleTimes[v][i - 1]);
-            mEdgeFlows[mVehicleRoutes[v][i]][enterInterval].first -= 1;
             int exitInterval = timeToInterval(mVehicleTimes[v][i]);
-            mEdgeFlows[mVehicleRoutes[v][i]][exitInterval].second -= 1;
+            if (exitInterval < 0) {
+                continue;
+            }
+            auto &flows = mEdgeFlows[edge];
+            if (enterInterval >= 0 && enterInterval < flows.size()) {
+                flows[enterInterval].first -= 1;
+            }
+            if (exitInterval < flows.size()) {
+                flows[exitInterval].second -= 1;
+            }
 
             if (afflictedEdges.count(mVehicleRoutes[v][i]) == 0) {
                 afflictedEdges[mVehicleRoutes[v][i]] = enterInterval;
@@ -2535,11 +2559,13 @@ std::vector<routeData> Router::reactivelyReroute(int currentTime) {
 
     // Update dynamic parameters on afflicted edges
     for (auto &[edge, interval] : afflictedEdges) {
-        int currentInterval = interval;
-        while (currentInterval <= mEdgeDensities[edge].size()) {
-            // TODO: make sure update is conducted in correct interval
+        // Interval zero contains observed data. Recompute future forecasts using
+        // absolute simulation time, rather than treating relative indices as time.
+        int currentInterval = std::max(1, interval);
+        while (currentInterval < mEdgeDensities[edge].size()) {
             auto [density, speed, fuel] =
-                predictDynamicParameters(mOriginalGraph.getEdge(edge), currentInterval * mIntervalLength);
+                predictDynamicParameters(mOriginalGraph.getEdge(edge),
+                                         (mPassedIntervals + currentInterval) * mIntervalLength + 1);
 
             if (fabs(mEdgeDensities[edge][currentInterval] - density) <= 0.01) {
                 break;

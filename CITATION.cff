@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "Please cite the accompanying AAMAS 2026 paper when using this research software."
+type: software
+license: MIT
+title: "Dynamic Routing: Cooperative Multicriteria Traffic Planning"
+repository-code: "https://github.com/tem-kurbanov/dynamic-routing"
+authors:
+  - family-names: Kurbanov
+    given-names: Temirlan
+preferred-citation:
+  type: conference-paper
+  title: "Multiagent System for Dynamic Multicriteria Traffic Routing in Urban Environments"
+  authors:
+    - family-names: Kurbanov
+      given-names: Temirlan
+    - family-names: Kubíková
+      given-names: Adéla
+    - family-names: Vokřínek
+      given-names: Jiří
+    - family-names: Klügl
+      given-names: Franziska
+  year: 2026
+  collection-title: "Proceedings of the 25th International Conference on Autonomous Agents and Multiagent Systems (AAMAS 2026)"
