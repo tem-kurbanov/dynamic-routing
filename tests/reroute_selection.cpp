@@ -35,6 +35,7 @@ struct Router {
     std::unordered_map<int, std::vector<double>> mEdgeSpeeds, mVehicleTimes;
     std::unordered_map<int, std::vector<int>> mVehicleRoutes;
     std::unordered_map<int, int> mVehiclePositions;
+    std::unordered_map<int, std::vector<std::pair<bool, bool>>> mVehicleFlowRecorded;
     std::unordered_map<int, std::unordered_set<int>> mCurrentEdgePopulation;
     std::unordered_set<int> selectForRerouting(const std::unordered_set<int> &);
     std::vector<routeData> reactivelyReroute(int);
@@ -86,7 +87,7 @@ int main(int argc, char **argv) {
         router.mPassedIntervals = 2;
         router.mVehiclePriorities[42] = {1, 2, 3, 4};
         router.mVehicleTimes[42] = {180, 190};
-        if (test == "reactive_expired_inflow") router.mVehicleTimes[42] = {60, 119};
+        if (test == "reactive_expired_inflow") router.mVehicleTimes[42] = {120, 130};
         if (test == "reactive_foreign") {
             std::vector<Node> otherNodes;
             std::vector<Edge> otherEdges;
@@ -106,6 +107,7 @@ int main(int argc, char **argv) {
             router.mEdgeSpeeds[id].assign(3, 10);
             router.mEdgeFuels[id].assign(3, 1);
         }
+        router.mVehicleFlowRecorded[42].assign(router.mVehicleRoutes[42].size(), {true, true});
         const auto routes = router.reactivelyReroute(180);
         if (routes.size() != 1 || routes[0].vehicleID != 42 || !router.advanced ||
             router.demand.size() != 1 || std::get<0>(router.demand[0]) != 42 ||

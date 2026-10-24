@@ -4,7 +4,7 @@
 
 #ifndef FUELESTIMATOR_H
 #define FUELESTIMATOR_H
-#include <xgboost/c_api.h>
+#include "EstimatorSupport.h"
 
 #include <string>
 #include <vector>
@@ -17,7 +17,7 @@
  */
 class FuelEstimator {
    private:
-    BoosterHandle mBooster;  ///< XGBoost booster handle
+    estimator::Booster mBooster;  ///< XGBoost booster handle
 
     int mNumFeatures = 5;  ///< Number of features expected by the model
 

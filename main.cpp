@@ -509,12 +509,16 @@ void masterProcess(const Graph &originalGraph, const std::string &scenarioPath, 
             // Synchronize positions of vehicle in the simulation with the ones in the ACUs
             for (auto &[clID, p] : currentDensities) {
                 for (auto &[edge, density] : p) {
-                    double currentDens =
-                        1000 * (static_cast<double>(vehicleCounts[edge]) / static_cast<double>(reroutingInterval)) /
-                        originalGraph.getEdge(edge).getLength();
-                    double maxDensity = originalGraph.getEdge(edge).getMaxDensity();
-                    // Set relative density to a value from 0 to 1
-                    density = currentDens / maxDensity;
+                    const double length = originalGraph.getEdge(edge).getLength();
+                    const double maxDensity = originalGraph.getEdge(edge).getMaxDensity();
+                    double relativeDensity = 0;
+                    if (std::isfinite(length) && length > 0 && std::isfinite(maxDensity) && maxDensity > 0) {
+                        relativeDensity = 1000 * (static_cast<double>(vehicleCounts[edge]) / reroutingInterval) /
+                                          length / maxDensity;
+                    } else {
+                        logError("Invalid density geometry for edge " + std::to_string(edge));
+                    }
+                    density = std::isfinite(relativeDensity) ? std::clamp(relativeDensity, 0.0, 1.0) : 0.0;
                     vehicleCounts[edge] = 0;
                 }
             }
@@ -763,21 +767,29 @@ int main(int argc, char *argv[]) {
     std::vector<char> buff(bufferSize);
     MPI_Buffer_attach(buff.data(), bufferSize);
 
-    if (worldRank == 0) {
-        masterProcess(originalGraph, scenarioPath, tripInfoFileName, edgeDataFileName, vehRoutesFileName,
-                      synchronizationInterval, simulationEnd);
-    } else if (worldRank > 0 && worldRank <= NUM_AGENTS) {
-        // ACU processes
-        // Create Traffic estimator
-        TrafficEstimator t(scenarioPath + "/models/log/density_60.json");
-        SpeedEstimator s(scenarioPath + "/models/log/speed_60.json");
-        FuelEstimator f(scenarioPath + "/models/log/fuel_60.json");
+    try {
+        if (worldRank == 0) {
+            masterProcess(originalGraph, scenarioPath, tripInfoFileName, edgeDataFileName, vehRoutesFileName,
+                          synchronizationInterval, simulationEnd);
+        } else if (worldRank > 0 && worldRank <= NUM_AGENTS) {
+            // ACU processes
+            // Create Traffic estimator
+            TrafficEstimator t(scenarioPath + "/models/log/density_60.json");
+            SpeedEstimator s(scenarioPath + "/models/log/speed_60.json");
+            FuelEstimator f(scenarioPath + "/models/log/fuel_60.json");
 
-        Router clusterRouter(worldRank - 1, NUM_AGENTS, 60, originalGraph, K, t, s, f);
-        clusterRouter.setEpsilon(epsilon);
-        clusterRouter.setReroutePortion(reroutePortion);
-        clusterRouter.setLogging(ENABLE_LOGGING);
-        acuProcess(clusterRouter);
+            Router clusterRouter(worldRank - 1, NUM_AGENTS, 60, originalGraph, K, t, s, f);
+            clusterRouter.setEpsilon(epsilon);
+            clusterRouter.setReroutePortion(reroutePortion);
+            clusterRouter.setLogging(ENABLE_LOGGING);
+            acuProcess(clusterRouter);
+        }
+
+    } catch (const std::exception &error) {
+        logError("MPI rank " + std::to_string(worldRank) + ": " + error.what());
+        // A single failed worker must not leave the master or peers waiting forever.
+        MPI_Abort(MPI_COMM_WORLD, 1);
+        return 1;
     }
 
     void *detachedBuffer;

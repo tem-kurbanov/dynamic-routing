@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <stdexcept>
 #include <functional>
 #include <queue>
 #include <random>
@@ -116,24 +118,11 @@ Router::Router(int cluster, int numAgents, int intervalLength, Graph &originalGr
  * Computes which interval the given time belongs to based on mIntervalLength
  */
 int Router::timeToInterval(double time) {
-
-    return ((time - 1) / mIntervalLength) - mPassedIntervals;
-    // // Round to closest interval
-    // return div(static_cast<int>(time), static_cast<int>(mIntervalLength)).quot - mPassedIntervals;
+    return static_cast<int>(std::floor((time - 1) / mIntervalLength)) - mPassedIntervals;
 }
 
-/**
- *
- * @param time Time in seconds
- * @return Interval number
- *
- * Computes which interval the given time belongs to based on mIntervalLength
- */
 int Router::timeToInterval(int time) {
-
-    return ((time - 1) / mIntervalLength) - mPassedIntervals;
-    // Round to closest interval
-    // return div(time, static_cast<int>(mIntervalLength)).quot - mPassedIntervals;
+    return timeToInterval(static_cast<double>(time));
 }
 
 /**
@@ -195,7 +184,12 @@ std::unordered_set<int> Router::selectForRerouting(const std::unordered_set<int>
                     continue;
                 }
 
-                double newTime = currentTime + mOriginalGraph.getEdge(nextEdge).getLength() / mEdgeSpeeds[nextEdge][0];
+                auto speedIt = mEdgeSpeeds.find(nextEdge);
+                double speed = mOriginalGraph.getEdge(nextEdge).getSpeedLimit();
+                if (speedIt != mEdgeSpeeds.end() && !speedIt->second.empty() &&
+                    std::isfinite(speedIt->second[0]) && speedIt->second[0] > 0) speed = speedIt->second[0];
+                if (!std::isfinite(speed) || speed <= 0) continue;
+                double newTime = currentTime + mOriginalGraph.getEdge(nextEdge).getLength() / speed;
                 if (newTime < mIntervalLength) {
                     // Revisit only when a shorter approach is found; this also
                     // terminates traversal through zero-length cycles.
@@ -207,11 +201,18 @@ std::unordered_set<int> Router::selectForRerouting(const std::unordered_set<int>
                     for (int v : mCurrentEdgePopulation[nextEdge]) {
                         // TODO: think of better selection strategy
                         // Check if the vehicle is expected to go through the congested edge in the next interval
-                        auto &fullRoute = mVehicleRoutes[v];
-                        int expectedPosition = mVehiclePositions[v];
-                        int startTime = mVehicleTimes[v][expectedPosition];
-
-                        int expectedTime = startTime;
+                        auto routeIt = mVehicleRoutes.find(v);
+                        auto timesIt = mVehicleTimes.find(v);
+                        auto posIt = mVehiclePositions.find(v);
+                        if (routeIt == mVehicleRoutes.end() || timesIt == mVehicleTimes.end() ||
+                            posIt == mVehiclePositions.end()) continue;
+                        const auto &fullRoute = routeIt->second;
+                        const auto &times = timesIt->second;
+                        const int safeLen = static_cast<int>(std::min(fullRoute.size(), times.size()));
+                        int expectedPosition = posIt->second;
+                        if (expectedPosition < 0 || expectedPosition >= safeLen) continue;
+                        double startTime = times[expectedPosition];
+                        double expectedTime = startTime;
                         bool traversesCongestedEdge = false;
                         while (expectedTime < startTime + mIntervalLength) {
                             if (fullRoute[expectedPosition] == e) {
@@ -219,10 +220,10 @@ std::unordered_set<int> Router::selectForRerouting(const std::unordered_set<int>
                                 break;
                             }
                             expectedPosition++;
-                            if (expectedPosition >= fullRoute.size()) {
+                            if (expectedPosition >= safeLen) {
                                 break;
                             }
-                            expectedTime = mVehicleTimes[v][expectedPosition];
+                            expectedTime = times[expectedPosition];
                         }
                         if (!traversesCongestedEdge) {
                             continue;
@@ -710,6 +711,10 @@ std::vector<routeData> Router::proactivelyRoute(
 
     // For every vehicle, plan a route
     for (const auto &[vehID, route, priorities] : demand) {
+        if (route.empty()) {
+            assignedRoutes.emplace_back(vehID, std::vector<int>{});
+            continue;
+        }
         int startEdge = route[0];
         int goalEdge = route[route.size() - 1];
 
@@ -816,7 +821,7 @@ std::vector<routeData> Router::proactivelyRoute(
         }
     }
 
-    std::unordered_map<int, std::vector<std::vector<double>>>
+    std::unordered_map<int, std::vector<RouteCandidate>>
         aggregatedSolutions;  // Aggregated solutions for vehicles that end in different clusters
 
     std::queue<std::unordered_map<int, std::unordered_map<int, std::set<std::shared_ptr<hierLabel>, hierLexCompare>>>>
@@ -841,9 +846,9 @@ std::vector<routeData> Router::proactivelyRoute(
                 // receivedQueryFrom.erase(vehID);
                 if (!finishedPaths.empty()) {
                     // Pack paths into a vector of vectors of parameters
-                    std::vector<std::vector<double>> paths;
+                    std::vector<RouteCandidate> paths;
                     for (auto &path : finishedPaths) {
-                        paths.push_back(path->parameters);
+                        paths.push_back({path->parameters, clusterSequence});
                     }
                     std::vector<int> seq(clusterSequence);
                     seq.pop_back();
@@ -976,7 +981,8 @@ std::vector<routeData> Router::proactivelyRoute(
                 for (auto &[edge, labels] : storedLabels[vehID][seq][receivedLabel->node]) {
                     auto it = std::find_if(labels.begin(), labels.end(),
                                            [&rl = receivedLabel](const std::shared_ptr<hierLabel> &l) -> bool {
-                                               return rl->parameters == l->parameters;
+                                               return rl->parameters == l->parameters &&
+                                                      rl->usedEdge->getInsideEdges() == l->usedEdge->getInsideEdges();
                                            });
                     if (it != labels.end()) {
                         correspondingLabel = *it;
@@ -984,9 +990,12 @@ std::vector<routeData> Router::proactivelyRoute(
                     }
                 }
 
+                if (!correspondingLabel) {
+                    throw std::runtime_error("Finished route has no retained border label for vehicle " + std::to_string(vehID));
+                }
                 // Extend the path until the borders of own cluster or query end
                 std::shared_ptr<hierLabel> rootLabel = buildForwardPath(correspondingLabel, buildPath);
-                int startTime = static_cast<int>(rootLabel->parameters[1]);
+                double startTime = rootLabel->parameters[1];
 
                 storedLabels.erase(vehID);
                 goalEdges.erase(vehID);
@@ -1025,11 +1034,14 @@ std::vector<routeData> Router::proactivelyRoute(
             if (notFoundFlag) {
                 // Received a message that the route was not found
                 auto [vehID, clusterSequence] = receiveRouteNotFound(n, status);
+                if (goalEdges.count(vehID) == 0) {
+                    logMessage("IGNORE|stale routeNotFound|veh=" + std::to_string(vehID));
+                    continue;
+                }
                 // Find another cluster to send the request to
                 std::vector<int> seq(clusterSequence);
                 seq.push_back(n);
                 exploredSequences[vehID][seq] = true;
-                storedLabels[vehID].erase(seq);
                 seq.clear();
 
                 // Check if there is another cluster to send the request to
@@ -1048,32 +1060,8 @@ std::vector<routeData> Router::proactivelyRoute(
                     // If own request, check for aggregated solutions
                     if (clusterSequence.size() == 1) {
                         if (!aggregatedSolutions[vehID].empty()) {
-                            std::vector<double> bestParameters =
-                                selectBestRoute(aggregatedSolutions[vehID], storedPriorities[vehID]);
-                            // Find the target cluster
-                            if (mOriginalGraph.getEdge(goalEdges[vehID]).isBorderEdge()) {
-                                // Check if the edge belongs to the own cluster
-                                if (mOriginalGraph.getEdge(goalEdges[vehID]).getClusterBitmask() & (1 << mClusterID)) {
-                                    int targetCluster =
-                                        mBitmaskToCluster[mOriginalGraph.getEdge(goalEdges[vehID]).getClusterBitmask() &
-                                                          ~(1 << mClusterID)];
-                                    sendAcceptedRoute(targetCluster, vehID, storedPriorities[vehID], bestParameters);
-                                } else {
-                                    // Extract both clusters from the edge bitmask
-                                    int cluster1 =
-                                        __builtin_ctz(mOriginalGraph.getEdge(goalEdges[vehID]).getClusterBitmask());
-                                    int cluster2 =
-                                        __builtin_ctz(mOriginalGraph.getEdge(goalEdges[vehID]).getClusterBitmask() &
-                                                      ~(1 << cluster1));
-                                    sendAcceptedRoute(cluster1, vehID, storedPriorities[vehID], bestParameters);
-                                    sendAcceptedRoute(cluster2, vehID, storedPriorities[vehID], bestParameters);
-                                }
-                            } else {
-                                // The edge is not a border edge, send the route to the target cluster
-                                int targetCluster = mOriginalGraph.getEdge(goalEdges[vehID]).getClusterBitmask();
-                                targetCluster = mBitmaskToCluster[targetCluster];
-                                sendAcceptedRoute(targetCluster, vehID, storedPriorities[vehID], bestParameters);
-                            }
+                            auto best = selectBestCandidate(aggregatedSolutions[vehID], storedPriorities[vehID]);
+                            sendAcceptedRoute(best.clusterSequence.back(), vehID, storedPriorities[vehID], best);
                         } else {
                             // No aggregated solutions, abandon the vehicle
                             recordRoute(vehID, defaultRoutes[vehID], std::vector<double>(), storedPriorities[vehID],
@@ -1116,6 +1104,10 @@ std::vector<routeData> Router::proactivelyRoute(
                 // Received a message that the route was found
                 // Process incoming criteria
                 auto [vehID, clusterSequence, foundPaths] = receiveFoundRoutes(n, status);
+                if (goalEdges.count(vehID) == 0) {
+                    logMessage("IGNORE|stale foundRoutes|veh=" + std::to_string(vehID));
+                    continue;
+                }
                 std::vector<int> seq(clusterSequence);
                 seq.push_back(n);
                 exploredSequences[vehID][seq] = true;
@@ -1148,53 +1140,8 @@ std::vector<routeData> Router::proactivelyRoute(
                         goalEdges.erase(vehID);
                     } else {
                         // The routes returned to the starting cluster, select one and send it to the target cluster
-                        std::vector<double> bestParameters =
-                            selectBestRoute(aggregatedSolutions[vehID], storedPriorities[vehID]);
-                        // Find the target cluster
-                        if (mOriginalGraph.getEdge(goalEdges[vehID]).isBorderEdge()) {
-                            // Check if the edge belongs to the own cluster
-                            if (mOriginalGraph.getEdge(goalEdges[vehID]).getClusterBitmask() & (1 << mClusterID)) {
-                                int targetCluster =
-                                    mBitmaskToCluster[mOriginalGraph.getEdge(goalEdges[vehID]).getClusterBitmask() &
-                                                      ~(1 << mClusterID)];
-                                sendAcceptedRoute(targetCluster, vehID, storedPriorities[vehID], bestParameters);
-                            } else {
-                                // Extract both clusters from the edge bitmask
-                                int cluster1 =
-                                    __builtin_ctz(mOriginalGraph.getEdge(goalEdges[vehID]).getClusterBitmask());
-                                int cluster2 = __builtin_ctz(
-                                    mOriginalGraph.getEdge(goalEdges[vehID]).getClusterBitmask() & ~(1 << cluster1));
-
-                                int targetCluster = -1;
-                                // Check incoming edges for cluster bitmask
-                                std::unordered_set<int> incomingEdges =
-                                    mOriginalGraph.getEdge(goalEdges[vehID]).getIncomingEdges();
-                                for (int edge : incomingEdges) {
-                                    if (!mOriginalGraph.getEdge(edge).isBorderEdge()) {
-                                        if (mOriginalGraph.getEdge(edge).getClusterBitmask() & (1 << cluster1)) {
-                                            targetCluster = cluster1;
-                                            break;
-                                        } else if (mOriginalGraph.getEdge(edge).getClusterBitmask() & (1 << cluster2)) {
-                                            targetCluster = cluster2;
-                                            break;
-                                        }
-                                    }
-                                }
-                                if (targetCluster != -1) {
-                                    sendAcceptedRoute(targetCluster, vehID, storedPriorities[vehID], bestParameters);
-                                } else {
-                                    sendAcceptedRoute(cluster1, vehID, storedPriorities[vehID], bestParameters);
-                                    sendAcceptedRoute(cluster2, vehID, storedPriorities[vehID], bestParameters);
-                                }
-                            }
-                        } else {
-                            // The edge is not a border edge, send the route to the target cluster
-                            int targetCluster = mOriginalGraph.getEdge(goalEdges[vehID]).getClusterBitmask();
-                            targetCluster =
-                                mBitmaskToCluster[mOriginalGraph.getEdge(goalEdges[vehID]).getClusterBitmask() &
-                                                  ~(1 << mClusterID)];
-                            sendAcceptedRoute(targetCluster, vehID, storedPriorities[vehID], bestParameters);
-                        }
+                        auto best = selectBestCandidate(aggregatedSolutions[vehID], storedPriorities[vehID]);
+                        sendAcceptedRoute(best.clusterSequence.back(), vehID, storedPriorities[vehID], best);
                     }
                 }
             }
@@ -1205,51 +1152,23 @@ std::vector<routeData> Router::proactivelyRoute(
             if (acceptedRouteFlag) {
                 // The message is sent by the starting cluster to the one which found the routes to be accepted
                 auto [vehID, priorities, acceptedRoute] = receiveAcceptedRoute(n, status);
-                // Find the corresponding label among stored by comparing the parameters
                 std::shared_ptr<hierLabel> correspondingLabel;
-                std::vector<int> correspondingSequence;
-                for (auto &[sequence, labels] : completedLabels[vehID]) {
-                    for (auto &label : labels) {
-                        if (label->parameters == acceptedRoute) {
-                            correspondingLabel = label;
-                            correspondingSequence = sequence;
-                            break;
-                        }
-                    }
-                }
-
-                if (correspondingLabel == nullptr) {
-                    // Check if the label exists but double imprecision is present
-                    for (auto &[sequence, labels] : completedLabels[vehID]) {
-                        for (auto &label : labels) {
-                            bool found = true;
-                            for (int i = 0; i < NUM_PARAMETERS; ++i) {
-                                if (fabs(label->parameters[i] - acceptedRoute[i]) > 0.000001) {
-                                    found = false;
-                                    break;
-                                }
-                            }
-                            if (found) {
+                const auto &correspondingSequence = acceptedRoute.clusterSequence;
+                auto vehicle = completedLabels.find(vehID);
+                if (vehicle != completedLabels.end()) {
+                    auto context = vehicle->second.find(correspondingSequence);
+                    if (context != vehicle->second.end()) {
+                        for (const auto &label : context->second) {
+                            if (label->parameters == acceptedRoute.parameters) {
                                 correspondingLabel = label;
-                                correspondingSequence = sequence;
                                 break;
                             }
                         }
                     }
                 }
-
-                if (correspondingLabel == nullptr) {
-                    // Check if the goal edge is a border edge
-                    if (goalEdges.count(vehID) > 0) {
-                        if (mOriginalGraph.getEdge(goalEdges[vehID]).isBorderEdge()) {
-                            // The label is not own, ignore the message
-                            continue;
-                        }
-                    } else {
-                        logError("Received accepted route from ACU " + std::to_string(n) +
-                                 " but no corresponding label found");
-                        continue;
-                    }
+                if (!correspondingLabel || correspondingSequence.size() < 2 ||
+                    correspondingSequence.back() != mClusterID) {
+                    throw std::runtime_error("Accepted route has no matching completion for vehicle " + std::to_string(vehID));
                 }
                 // Extend the path until the borders of own cluster or query end
                 std::vector<int> buildPath;
@@ -1266,7 +1185,7 @@ std::vector<routeData> Router::proactivelyRoute(
                 // std::shared_ptr<hierLabel> chosenPath = selectBestRoute(finishedPaths, priorities);
                 // std::vector<int> buildPath;
                 // std::shared_ptr<hierLabel> rootLabel = buildForwardPath(chosenPath, buildPath);
-                int startTime = static_cast<int>(rootLabel->parameters[1]);
+                double startTime = rootLabel->parameters[1];
                 // Record the backward path of the route
                 // Add border edge to recording
                 std::vector<int> myPath;
@@ -1513,79 +1432,103 @@ Router::receiveContinueRoute(int fromCluster, const MPI_Status &status) {
     return std::make_tuple(vehID, clusterSequence, goalEdge, labels);
 }
 
-// sendFoundRoutes(sourceCluster, vehID, paths);
-void Router::sendFoundRoutes(int toCluster, int vehID, std::vector<int> clusterSequence,
-                             const std::vector<std::vector<double>> &routes) {
-    logMessage("SEND|foundRoutes|to=" + std::to_string(toCluster) + "|veh=" + std::to_string(vehID) +
-               "|clusterSequence=" + vectorToString(clusterSequence) + "|routes=" + std::to_string(routes.size()));
-    std::vector<double> sendData;
-    sendData.push_back(static_cast<double>(vehID));
-    sendData.push_back(static_cast<double>(clusterSequence.size()));
-    sendData.insert(sendData.end(), clusterSequence.begin(), clusterSequence.end());
-    sendData.push_back(static_cast<double>(routes.size()));
-    for (const auto &route : routes) {
-        sendData.insert(sendData.end(), route.begin(), route.end());
+namespace {
+int readMessageInt(const std::vector<double> &data, size_t &index) {
+    if (index >= data.size() || !std::isfinite(data[index]) || data[index] < 0 ||
+        data[index] > std::numeric_limits<int>::max() || std::floor(data[index]) != data[index]) {
+        throw std::runtime_error("Invalid routing message integer");
     }
-    MPI_Bsend(sendData.data(), static_cast<int>(sendData.size()), MPI_DOUBLE, toCluster + 1,
+    return static_cast<int>(data[index++]);
+}
+
+std::vector<int> readSequence(const std::vector<double> &data, size_t &index) {
+    const int count = readMessageInt(data, index);
+    if (count == 0 || count > data.size() - index) throw std::runtime_error("Invalid routing sequence");
+    std::vector<int> sequence;
+    for (int i = 0; i < count; ++i) sequence.push_back(readMessageInt(data, index));
+    return sequence;
+}
+
+RouteCandidate readCandidate(const std::vector<double> &data, size_t &index, int numParameters) {
+    if (data.size() - index < numParameters) throw std::runtime_error("Truncated route candidate");
+    RouteCandidate candidate;
+    for (int p = 0; p < numParameters; ++p) {
+        if (!std::isfinite(data[index])) throw std::runtime_error("Nonfinite route criterion");
+        candidate.parameters.push_back(data[index++]);
+    }
+    candidate.clusterSequence = readSequence(data, index);
+    return candidate;
+}
+
+void appendCandidate(std::vector<double> &data, const RouteCandidate &candidate, int numParameters) {
+    if (candidate.parameters.size() != numParameters || candidate.clusterSequence.empty()) {
+        throw std::invalid_argument("Invalid route candidate");
+    }
+    data.insert(data.end(), candidate.parameters.begin(), candidate.parameters.end());
+    data.push_back(candidate.clusterSequence.size());
+    data.insert(data.end(), candidate.clusterSequence.begin(), candidate.clusterSequence.end());
+}
+}
+
+void Router::sendFoundRoutes(int toCluster, int vehID, std::vector<int> clusterSequence,
+                             const std::vector<RouteCandidate> &routes) {
+    logMessage("SEND|foundRoutes|to=" + std::to_string(toCluster) + "|veh=" + std::to_string(vehID) +
+               "|routes=" + std::to_string(routes.size()));
+    std::vector<double> data{static_cast<double>(vehID), static_cast<double>(clusterSequence.size())};
+    data.insert(data.end(), clusterSequence.begin(), clusterSequence.end());
+    data.push_back(routes.size());
+    for (const auto &route : routes) appendCandidate(data, route, NUM_PARAMETERS);
+    MPI_Bsend(data.data(), static_cast<int>(data.size()), MPI_DOUBLE, toCluster + 1,
               static_cast<int>(MessageTags::foundRoutes), MPI_COMM_WORLD);
 }
 
-// auto [vehID, foundPaths] = receiveFoundRoutes(n, status);
-std::tuple<int, std::vector<int>, std::vector<std::vector<double>>> Router::receiveFoundRoutes(
+std::tuple<int, std::vector<int>, std::vector<RouteCandidate>> Router::receiveFoundRoutes(
     int fromCluster, const MPI_Status &status) {
     int size;
     MPI_Get_count(&status, MPI_DOUBLE, &size);
-    std::vector<double> receivedData(size);
-    MPI_Recv(receivedData.data(), size, MPI_DOUBLE, fromCluster + 1, static_cast<int>(MessageTags::foundRoutes),
+    if (size < 3) throw std::runtime_error("Truncated foundRoutes message");
+    std::vector<double> data(size);
+    MPI_Recv(data.data(), size, MPI_DOUBLE, fromCluster + 1, static_cast<int>(MessageTags::foundRoutes),
              MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-    int vehID = static_cast<int>(receivedData[0]);
-    int seqSize = static_cast<int>(receivedData[1]);
-    std::vector<int> clusterSequence(receivedData.begin() + 2, receivedData.begin() + 2 + seqSize);
-    int numRoutes = static_cast<int>(receivedData[2 + seqSize]);
-
-    logMessage("RECV|foundRoutes|from=" + std::to_string(fromCluster) + "|veh=" + std::to_string(vehID) +
-               "|clusterSequence=" + vectorToString(clusterSequence) + "|numRoutes=" + std::to_string(numRoutes));
-
-    std::vector<std::vector<double>> routes;
-    for (int i = seqSize + 3; i < numRoutes + seqSize + 3; i += NUM_PARAMETERS) {
-        std::vector<double> route(receivedData.begin() + i, receivedData.begin() + i + NUM_PARAMETERS);
-        routes.push_back(route);
+    size_t index = 0;
+    const int vehID = readMessageInt(data, index);
+    auto sequence = readSequence(data, index);
+    const int count = readMessageInt(data, index);
+    if (count > (data.size() - index) / (NUM_PARAMETERS + 2)) {
+        throw std::runtime_error("Truncated foundRoutes candidates");
     }
-
-    return std::make_tuple(vehID, clusterSequence, routes);
+    std::vector<RouteCandidate> routes;
+    for (int i = 0; i < count; ++i) routes.push_back(readCandidate(data, index, NUM_PARAMETERS));
+    if (index != data.size()) throw std::runtime_error("Trailing foundRoutes data");
+    logMessage("RECV|foundRoutes|from=" + std::to_string(fromCluster) + "|veh=" + std::to_string(vehID) +
+               "|numRoutes=" + std::to_string(count));
+    return {vehID, sequence, routes};
 }
 
-// sendAcceptedRoute(targetCluster, vehID, storedPriorities[vehID], bestParameters);
 void Router::sendAcceptedRoute(int toCluster, int vehID, const std::vector<double> &priorities,
-                               const std::vector<double> &route) const {
-    logMessage("SEND|acceptedRoute|to=" + std::to_string(toCluster) + "|veh=" + std::to_string(vehID) +
-               "|priorities=" + vectorToString(priorities) + "|route=" + vectorToString(route));
-    std::vector<double> sendData;
-    sendData.push_back(static_cast<double>(vehID));
-    sendData.insert(sendData.end(), priorities.begin(), priorities.end());
-    sendData.insert(sendData.end(), route.begin(), route.end());
-    MPI_Bsend(sendData.data(), static_cast<int>(sendData.size()), MPI_DOUBLE, toCluster + 1,
+                               const RouteCandidate &route) const {
+    std::vector<double> data{static_cast<double>(vehID)};
+    data.insert(data.end(), priorities.begin(), priorities.end());
+    appendCandidate(data, route, NUM_PARAMETERS);
+    MPI_Bsend(data.data(), static_cast<int>(data.size()), MPI_DOUBLE, toCluster + 1,
               static_cast<int>(MessageTags::acceptedRoute), MPI_COMM_WORLD);
 }
-// auto [vehID, priorities, acceptedRoute] = receiveAcceptedRoute(n, status);
-/** @brief Receive message that requested route could not be found */
-std::tuple<int, std::vector<double>, std::vector<double>> Router::receiveAcceptedRoute(int fromCluster,
-                                                                                       const MPI_Status &status) const {
+
+std::tuple<int, std::vector<double>, RouteCandidate> Router::receiveAcceptedRoute(
+    int fromCluster, const MPI_Status &status) const {
     int size;
     MPI_Get_count(&status, MPI_DOUBLE, &size);
-    std::vector<double> receivedData(size);
-    MPI_Recv(receivedData.data(), size, MPI_DOUBLE, fromCluster + 1, static_cast<int>(MessageTags::acceptedRoute),
+    if (size < 1 + 2 * NUM_PARAMETERS + 2) throw std::runtime_error("Truncated acceptedRoute message");
+    std::vector<double> data(size);
+    MPI_Recv(data.data(), size, MPI_DOUBLE, fromCluster + 1, static_cast<int>(MessageTags::acceptedRoute),
              MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-    int vehID = static_cast<int>(receivedData[0]);
-    std::vector<double> priorities(receivedData.begin() + 1, receivedData.begin() + 1 + NUM_PARAMETERS);
-    std::vector<double> route(receivedData.begin() + 1 + NUM_PARAMETERS, receivedData.end());
-
-    logMessage("RECV|acceptedRoute|from=" + std::to_string(fromCluster) + "|veh=" + std::to_string(vehID) +
-               "|priorities=" + vectorToString(priorities) + "|route=" + vectorToString(route));
-
-    return std::make_tuple(vehID, priorities, route);
+    size_t index = 0;
+    const int vehID = readMessageInt(data, index);
+    std::vector<double> priorities(data.begin() + index, data.begin() + index + NUM_PARAMETERS);
+    index += NUM_PARAMETERS;
+    auto candidate = readCandidate(data, index, NUM_PARAMETERS);
+    if (index != data.size()) throw std::runtime_error("Trailing acceptedRoute data");
+    return {vehID, priorities, candidate};
 }
 
 /**
@@ -1702,7 +1645,7 @@ void Router::sendActivityStatus(bool isActive) {
  * Total time is computed as a sum of traversal times over all inner edges.
  * Total fuel consumption is computed as a sum of fuel consumptions over all inner edges.
  */
-std::tuple<double, double, double> Router::predictDynamicParameters(const CoverEdge &edge, int enterTime) {
+std::tuple<double, double, double> Router::predictDynamicParameters(const CoverEdge &edge, double enterTime) {
     const auto &insideEdges = edge.getInsideEdges();
     if (insideEdges.empty()) {
         return std::make_tuple(0.0, 0.0, 0.0);
@@ -1716,13 +1659,8 @@ std::tuple<double, double, double> Router::predictDynamicParameters(const CoverE
     for (int e : insideEdges) {
         const Edge &currentEdge = mOriginalGraph.getEdge(e);
         const double edgeLength = currentEdge.getLength();
-        const int interval = timeToInterval(currentTime);
-        const std::pair<int, int> &flows = mEdgeFlows[e][interval];
-        const double recordedDensity = mEdgeDensities[e][interval];
-
-        const double currentDensity = mTrafficEstimator.predictDensity(currentEdge, flows, recordedDensity);
-        const double currentSpeed = mSpeedEstimator.predictSpeed(currentEdge, currentDensity);
-        const double currentFuel = mFuelEstimator.predictFuel(currentEdge, currentDensity, currentSpeed);
+        const auto [currentDensity, currentSpeed, currentFuel] = predictDynamicParameters(currentEdge, currentTime);
+        currentTime += edgeLength / currentSpeed;
 
         totalDensity += currentDensity;
         totalTime += edgeLength / currentSpeed;
@@ -1742,14 +1680,15 @@ std::tuple<double, double, double> Router::predictDynamicParameters(const CoverE
  * Uses flows and previously predicted densities to make new predictions.
  * Predicts density, speed and fuel consumption.
  */
-std::tuple<double, double, double> Router::predictDynamicParameters(const Edge &edge, const int enterTime) {
+std::tuple<double, double, double> Router::predictDynamicParameters(const Edge &edge, const double enterTime) {
     const int interval = timeToInterval(enterTime);
     if (interval < 0) {
         return std::make_tuple(0.0, edge.getSpeedLimit(), 0.0);
     }
 
     // If current interval is requested, provide current data
-    if (interval == 0) {
+    if (interval == 0 && !mEdgeDensities[edge.getID()].empty() &&
+        !mEdgeSpeeds[edge.getID()].empty() && !mEdgeFuels[edge.getID()].empty()) {
         return std::make_tuple(mEdgeDensities[edge.getID()][0], mEdgeSpeeds[edge.getID()][0],
                                mEdgeFuels[edge.getID()][0]);
     }
@@ -1760,7 +1699,7 @@ std::tuple<double, double, double> Router::predictDynamicParameters(const Edge &
     auto &speeds = mEdgeSpeeds[edge.getID()];
     auto &fuels = mEdgeFuels[edge.getID()];
 
-    if (flows.size() <= interval) {
+    if (interval == 0 || flows.size() <= interval || densities.size() < interval) {
         return std::make_tuple(0.0, edge.getSpeedLimit(), mFuelEstimator.predictFuel(edge, 0, edge.getSpeedLimit()));
     } else {
         const double recordedDensity = densities[interval - 1];
@@ -1802,7 +1741,7 @@ std::vector<double> Router::prepareDynamicParameters(const CoverEdge &edge, doub
 }
 
 std::vector<double> Router::extractDynamicParameters(const Edge &edge, double enterTime) {
-    int currentInterval = timeToInterval(enterTime);
+    int currentInterval = std::max(0, timeToInterval(enterTime));
     int e = edge.getID();
 
     // Check the values are present, create them if not
@@ -1838,8 +1777,14 @@ std::vector<double> Router::extractDynamicParameters(const Edge &edge, double en
  * Updates inner predictions of dynamic parameters based on the update flows from the new vehicle
  */
 void Router::recordRoute(int vehID, const std::vector<int> &route, std::vector<double> times,
-                         const std::vector<double> &priorities, int currentTime) {
+                         const std::vector<double> &priorities, double currentTime) {
 
+    if (route.empty()) return;
+    if (times.size() > 1 || times.size() > route.size()) {
+        throw std::invalid_argument("recordRoute expects at most one initial timestamp");
+    }
+    auto &recorded = mVehicleFlowRecorded[vehID];
+    recorded.assign(route.size(), {false, false});
     // Edges in the route are original edges
     int startIndex;
     if (times.empty()) {
@@ -1854,7 +1799,7 @@ void Router::recordRoute(int vehID, const std::vector<int> &route, std::vector<d
         if (!mOriginalGraph.getEdge(i).inCluster(mClusterID)) {
             double traversalTime =
                 mOriginalGraph.getEdge(i).getLength() / (mOriginalGraph.getEdge(i).getSpeedLimit() / 2);
-            currentTime += static_cast<int>(traversalTime);
+            currentTime += traversalTime;
         } else {
             // Compute inflow interval by rounding down
             int startInterval = timeToInterval(currentTime);
@@ -1873,15 +1818,23 @@ void Router::recordRoute(int vehID, const std::vector<int> &route, std::vector<d
                                                                    mOriginalGraph.getEdge(i).getSpeedLimit()));
             }
 
-            mEdgeFlows[i][startInterval].first += 1;
-            mEdgeFlows[i][endInterval].second += 1;
+            if (startInterval >= 0) {
+                mEdgeFlows[i][startInterval].first += 1;
+                recorded[e].first = true;
+            }
+            if (endInterval >= 0) {
+                mEdgeFlows[i][endInterval].second += 1;
+                recorded[e].second = true;
+            }
 
-            mEdgeDensities[i][startInterval] = density;
-            mEdgeSpeeds[i][startInterval] = speed;
-            mEdgeFuels[i][startInterval] = fuel;
+            if (startInterval >= 0) {
+                mEdgeDensities[i][startInterval] = density;
+                mEdgeSpeeds[i][startInterval] = speed;
+                mEdgeFuels[i][startInterval] = fuel;
+            }
 
-            int tempTime = currentTime + mIntervalLength;
-            for (int t = startInterval + 1; t < mEdgeDensities[i].size(); ++t) {
+            double tempTime = (mPassedIntervals + std::max(1, startInterval + 1)) * mIntervalLength + 1;
+            for (int t = std::max(1, startInterval + 1); t < mEdgeDensities[i].size(); ++t) {
                 auto [tempDensity, tempSpeed, tempFuel] = predictDynamicParameters(mOriginalGraph.getEdge(i), tempTime);
 
                 if (fabs(mEdgeDensities[i][t] - tempDensity) <= 0.01) {
@@ -2120,23 +2073,7 @@ Router::distributedHierarchicalSearch(
 
             int nextNode = rNextEdge.getEndNode();
 
-            // Check for twice visited simple edges
-            std::unordered_set<int> visitedEdges;
-            bool twiceVisited = false;
-            auto tempLabel = pCurrentLabel;
-            while (tempLabel->pParent != nullptr) {
-                for (int edge : tempLabel->usedEdge->getInsideEdges()) {
-                    if (visitedEdges.count(edge) > 0) {
-                        twiceVisited = true;
-                        break;
-                    }
-                    visitedEdges.insert(edge);
-                }
-
-                tempLabel = tempLabel->pParent;
-            }
-
-            if (twiceVisited) {
+            if (reusesOriginalEdge(pCurrentLabel, rNextEdge)) {
                 continue;
             }
 
@@ -2171,7 +2108,7 @@ Router::distributedHierarchicalSearch(
                 // Get the density of the edge if interval exists
                 int currentInterval = timeToInterval(mCurrentTime + pCurrentLabel->parameters[1]);
                 double dens = 0;
-                if (currentInterval < mEdgeDensities[e].size()) {
+                if (currentInterval >= 0 && currentInterval < mEdgeDensities[e].size()) {
                     dens = mEdgeDensities[e][currentInterval];
                 }
 
@@ -2350,11 +2287,19 @@ std::set<std::shared_ptr<hierLabel>, hierLexCompare> Router::completeHierarchica
                                                         pCurrentLabel->usedEdge, pCurrentLabel->numHops);
                         auto currentBackwardLabel = pHitLabel;
 
+                        bool repeatsEdge = false;
                         while (currentBackwardLabel->pParent != nullptr) {
+                            if (reusesOriginalEdge(currentLabel, *currentBackwardLabel->usedEdge)) {
+                                repeatsEdge = true;
+                                break;
+                            }
                             currentLabel = expandLabel(currentLabel, currentBackwardLabel->usedEdge);
                             currentBackwardLabel = currentBackwardLabel->pParent;
                         }
 
+                        if (repeatsEdge || reusesOriginalEdge(currentLabel, *currentBackwardLabel->usedEdge)) {
+                            continue;
+                        }
                         bool congested = false;
                         // Prepare planning parameters for the next edge
                         for (int e : currentBackwardLabel->usedEdge->getInsideEdges()) {
@@ -2363,7 +2308,7 @@ std::set<std::shared_ptr<hierLabel>, hierLexCompare> Router::completeHierarchica
                             }
                             int currentInterval = timeToInterval(mCurrentTime + pCurrentLabel->parameters[1]);
                             double dens = 0;
-                            if (currentInterval < mEdgeDensities[e].size()) {
+                            if (currentInterval >= 0 && currentInterval < mEdgeDensities[e].size()) {
                                 dens = mEdgeDensities[e][currentInterval];
                             }
                             // double dens = extractDynamicParameters(mOriginalGraph.getEdge(e),
@@ -2409,23 +2354,7 @@ std::set<std::shared_ptr<hierLabel>, hierLexCompare> Router::completeHierarchica
 
             int nextNode = rNextEdge.getEndNode();
 
-            // Check for twice visited simple edges
-            std::unordered_set<int> visitedEdges;
-            bool twiceVisited = false;
-            auto tempLabel = pCurrentLabel;
-            while (tempLabel->pParent != nullptr) {
-                for (int edge : tempLabel->usedEdge->getInsideEdges()) {
-                    if (visitedEdges.count(edge) > 0) {
-                        twiceVisited = true;
-                        break;
-                    }
-                    visitedEdges.insert(edge);
-                }
-
-                tempLabel = tempLabel->pParent;
-            }
-
-            if (twiceVisited) {
+            if (reusesOriginalEdge(pCurrentLabel, rNextEdge)) {
                 continue;
             }
 
@@ -2442,7 +2371,7 @@ std::set<std::shared_ptr<hierLabel>, hierLexCompare> Router::completeHierarchica
             for (int e : rNextEdge.getInsideEdges()) {
                 int currentInterval = timeToInterval(mCurrentTime + pCurrentLabel->parameters[1]);
                 double dens = 0;
-                if (currentInterval < mEdgeDensities[e].size()) {
+                if (currentInterval >= 0 && currentInterval < mEdgeDensities[e].size()) {
                     dens = mEdgeDensities[e][currentInterval];
                 }
                 // double dens = extractDynamicParameters(mOriginalGraph.getEdge(e),
@@ -2522,11 +2451,18 @@ std::vector<routeData> Router::reactivelyReroute(int currentTime) {
 
     for (int v : vehiclesToReroute) {
         // Get start edge, end edge, and vehicle priorities
-        int startingPosition = mVehiclePositions.at(v);
+        auto routeIt = mVehicleRoutes.find(v);
+        auto timesIt = mVehicleTimes.find(v);
+        auto posIt = mVehiclePositions.find(v);
+        if (routeIt == mVehicleRoutes.end() || timesIt == mVehicleTimes.end() ||
+            posIt == mVehiclePositions.end() || mVehiclePriorities.count(v) == 0) continue;
+        const int safeLen = static_cast<int>(std::min(routeIt->second.size(), timesIt->second.size()));
+        int startingPosition = posIt->second;
+        if (startingPosition < 0 || startingPosition >= safeLen) continue;
         std::vector<int> remainingRoute(mVehicleRoutes[v].begin() + startingPosition, mVehicleRoutes[v].end());
 
         // Remove the rerouted vehicles from current flow registry
-        for (int i = startingPosition + 1; i < mVehicleRoutes[v].size(); ++i) {
+        for (int i = startingPosition + 1; i < safeLen; ++i) {
             int edge = mVehicleRoutes[v][i];
             if (!mOriginalGraph.getEdge(edge).inCluster(mClusterID)) {
                 continue;
@@ -2537,12 +2473,16 @@ std::vector<routeData> Router::reactivelyReroute(int currentTime) {
                 continue;
             }
             auto &flows = mEdgeFlows[edge];
-            if (enterInterval >= 0 && enterInterval < flows.size()) {
+            auto events = mVehicleFlowRecorded.find(v);
+            const bool hasRegistry = events != mVehicleFlowRecorded.end() && i < events->second.size();
+            if (enterInterval >= 0 && enterInterval < flows.size() &&
+                (hasRegistry && events->second[i].first)) {
                 flows[enterInterval].first -= 1;
             }
-            if (exitInterval < flows.size()) {
+            if (exitInterval < flows.size() && (hasRegistry && events->second[i].second)) {
                 flows[exitInterval].second -= 1;
             }
+            if (hasRegistry) events->second[i] = {false, false};
 
             if (afflictedEdges.count(mVehicleRoutes[v][i]) == 0) {
                 afflictedEdges[mVehicleRoutes[v][i]] = enterInterval;
@@ -2648,6 +2588,8 @@ void Router::synchronizePositions(const std::vector<positionData> &currentPositi
             continue;
         }
 
+        // A present vehicle must not be deleted merely because its route state is stale.
+        updated[vehID] = true;
         int currentEdge = pos.edgeID;
         auto &currentRoute = mVehicleRoutes[vehID];
         auto &currentTimes = mVehicleTimes[vehID];
@@ -2655,10 +2597,15 @@ void Router::synchronizePositions(const std::vector<positionData> &currentPositi
         int currentIndex =
             static_cast<int>(std::find(currentRoute.begin(), currentRoute.end(), currentEdge) - currentRoute.begin());
 
+        const int safeLen = static_cast<int>(std::min(currentRoute.size(), currentTimes.size()));
+        if (currentIndex >= safeLen) {
+            logError("Observed edge is absent from retained route for vehicle " + std::to_string(vehID));
+            continue;
+        }
         // Find estimated index by the closest time
         int estimatedIndex = 0;
         double minDiff = std::numeric_limits<double>::max();
-        for (int i = 0; i < currentTimes.size(); ++i) {
+        for (int i = 0; i < safeLen; ++i) {
             double diff = std::abs(currentTimes[i] - (currentTime - simulationStart));
             if (diff < minDiff) {
                 minDiff = diff;
@@ -2684,49 +2631,12 @@ void Router::synchronizePositions(const std::vector<positionData> &currentPositi
             // The offset is found, update the route estimations by the offset
             // ??? Compute traversal by time or just move according to offset ???
             std::set<int> involvedClusterBitmasks;
-            int updateIndex = std::min(currentIndex, estimatedIndex);
-            while (updateIndex < currentTimes.size()) {
-
-                // Check if the edge is in own cluster for updating
-                int currentCluster = mOriginalGraph.getEdge(currentRoute[updateIndex]).getClusterBitmask();
-                if (currentCluster & (1 << mClusterID)) {
-                    int expectedExit = currentTimes[updateIndex];
-                    if (timeToInterval(expectedExit) >= 0) {
-                        mEdgeFlows[currentRoute[updateIndex]][timeToInterval(expectedExit)].second -= 1;
-                    }
-                    int realExit = expectedExit + timeOffset;
-                    int realExitInterval = timeToInterval(realExit);
-                    if (realExitInterval < 0) {
-                        realExitInterval = 0;
-                    }
-                    while (realExitInterval + 1 >= mEdgeFlows[currentRoute[updateIndex]].size()) {
-                        mEdgeFlows[currentRoute[updateIndex]].push_back(std::make_pair(0, 0));
-                    }
-
-                    mEdgeFlows[currentRoute[updateIndex]][realExitInterval].second += 1;
-
-                    if (updateIndex > 0) {
-                        int expectedEnter = currentTimes[updateIndex - 1];
-                        if (timeToInterval(expectedEnter) >= 0) {
-                            mEdgeFlows[currentRoute[updateIndex]][timeToInterval(expectedEnter)].first -= 1;
-                        }
-                        int realEnter = expectedEnter + timeOffset;
-                        int realEnterInterval = timeToInterval(realEnter);
-                        if (realEnterInterval >= 0) {
-                            while (realEnterInterval + 1 >= mEdgeFlows[currentRoute[updateIndex]].size()) {
-                                mEdgeFlows[currentRoute[updateIndex]].push_back(std::make_pair(0, 0));
-                            }
-                            mEdgeFlows[currentRoute[updateIndex]][realEnterInterval].first += 1;
-                        }
-                    }
-                }
-
-                currentTimes[updateIndex] += timeOffset;
-                if (!(currentCluster & (1 << mClusterID))) {
-                    // The route continues in a different area, send the respective information
-                    involvedClusterBitmasks.insert(currentCluster);
-                }
-                updateIndex += 1;
+            const int updateIndex = std::min(currentIndex, estimatedIndex);
+            applyTimeOffset(vehID, timeOffset, updateIndex);
+            for (int idx = updateIndex; idx < safeLen; ++idx) {
+                int mask = mOriginalGraph.getEdge(currentRoute[idx]).getClusterBitmask();
+                // Shared border edges also belong to a peer that needs the offset.
+                involvedClusterBitmasks.insert(mask);
             }
             // Find clusters that are involved in the route and send them the offset update
             for (int c : involvedClusterBitmasks) {
@@ -2768,11 +2678,27 @@ void Router::synchronizePositions(const std::vector<positionData> &currentPositi
         MPI_Status status;
         int numElements;
         MPI_Probe(n + 1, static_cast<int>(MessageTags::addOffset), MPI_COMM_WORLD, &status);
-        MPI_Get_count(&status, MPI_INT, &numElements);
+        MPI_Get_count(&status, MPI_DOUBLE, &numElements);
+        if (numElements < 1) throw std::runtime_error("Empty timing-offset message");
 
         std::vector<double> receivedData(numElements);
         MPI_Recv(receivedData.data(), numElements, MPI_DOUBLE, n + 1, static_cast<int>(MessageTags::addOffset),
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        size_t index = 0;
+        const int count = readMessageInt(receivedData, index);
+        if (count != (receivedData.size() - 1) / 2 || receivedData.size() != 1 + 2 * static_cast<size_t>(count)) {
+            throw std::runtime_error("Invalid timing-offset message length");
+        }
+        for (int pair = 0; pair < count; ++pair) {
+            const int vehID = readMessageInt(receivedData, index);
+            const double offset = receivedData[index++];
+            if (!std::isfinite(offset)) throw std::runtime_error("Nonfinite timing offset");
+            // A local observation is authoritative; shared border reports must not shift twice.
+            if (!updated[vehID] && mVehicleRoutes.count(vehID) > 0) {
+                applyTimeOffset(vehID, offset, 0);
+                updated[vehID] = true;
+            }
+        }
     }
 
     // Go through recorded vehicle routes
@@ -2780,7 +2706,10 @@ void Router::synchronizePositions(const std::vector<positionData> &currentPositi
     for (auto &[vehID, wasUpdated] : updated) {
         if (!wasUpdated && mVehiclePositions.count(vehID) > 0) {
             // Create iterator at the position of the vehicle
-            auto lastPosition = mVehicleRoutes[vehID].begin() + mVehiclePositions[vehID];
+            const auto &route = mVehicleRoutes[vehID];
+            const int position = mVehiclePositions[vehID];
+            if (position < 0 || position >= route.size()) continue;
+            auto lastPosition = mVehicleRoutes[vehID].begin() + position;
             bool leftArea = false;
             bool willReturn = false;
             while (lastPosition < mVehicleRoutes[vehID].end()) {
@@ -2798,6 +2727,7 @@ void Router::synchronizePositions(const std::vector<positionData> &currentPositi
             if (lastPosition == mVehicleRoutes[vehID].end() || (leftArea && !willReturn)) {
                 mVehicleRoutes.erase(vehID);
                 mVehicleTimes.erase(vehID);
+                mVehicleFlowRecorded.erase(vehID);
                 mVehiclePositions.erase(vehID);
                 mVehiclePriorities.erase(vehID);
             }
@@ -2806,9 +2736,11 @@ void Router::synchronizePositions(const std::vector<positionData> &currentPositi
 
     // Record current densities
     for (auto &[edge, density] : currentDensities) {
-        mEdgeDensities[edge][0] = density;
-        mEdgeSpeeds[edge][0] = mSpeedEstimator.predictSpeed(mOriginalGraph.getEdge(edge), density);
-        mEdgeFuels[edge][0] = mFuelEstimator.predictFuel(mOriginalGraph.getEdge(edge), density, mEdgeSpeeds[edge][0]);
+        if (mEdgeDensities[edge].empty() || mEdgeSpeeds[edge].empty() || mEdgeFuels[edge].empty()) continue;
+        const double safeDensity = std::isfinite(density) ? std::clamp(density, 0.0, 1.0) : 0.0;
+        mEdgeDensities[edge][0] = safeDensity;
+        mEdgeSpeeds[edge][0] = mSpeedEstimator.predictSpeed(mOriginalGraph.getEdge(edge), safeDensity);
+        mEdgeFuels[edge][0] = mFuelEstimator.predictFuel(mOriginalGraph.getEdge(edge), safeDensity, mEdgeSpeeds[edge][0]);
     }
 }
 
@@ -2898,5 +2830,73 @@ void Router::logMessage(const std::string &message) const {
 void Router::logError(const std::string &error) const {
     if (mEnableLogging) {
         std::cerr << "ERR|" << mClusterID << "|" << error << std::endl;
+    }
+}
+
+RouteCandidate Router::selectBestCandidate(const std::vector<RouteCandidate> &candidates,
+                                           const std::vector<double> &priorities) {
+    if (candidates.empty()) throw std::invalid_argument("No route candidates");
+    std::vector<std::vector<double>> parameters;
+    for (const auto &candidate : candidates) parameters.push_back(candidate.parameters);
+    const auto best = selectBestRoute(parameters, priorities);
+    for (const auto &candidate : candidates) {
+        if (candidate.parameters == best) return candidate;
+    }
+    throw std::runtime_error("Selected route candidate is missing");
+}
+
+bool Router::reusesOriginalEdge(const std::shared_ptr<hierLabel> &currentLabel, const CoverEdge &nextEdge) const {
+    std::unordered_set<int> visited;
+    for (auto label = currentLabel; label; label = label->pParent) {
+        if (label->usedEdge) {
+            for (int edge : label->usedEdge->getInsideEdges()) visited.insert(edge);
+        }
+    }
+    for (int edge : nextEdge.getInsideEdges()) {
+        if (!visited.insert(edge).second) return true;
+    }
+    return false;
+}
+
+void Router::applyTimeOffset(int vehID, double offset, int startIndex) {
+    auto routeIt = mVehicleRoutes.find(vehID);
+    auto timesIt = mVehicleTimes.find(vehID);
+    if (routeIt == mVehicleRoutes.end() || timesIt == mVehicleTimes.end()) return;
+    const auto &route = routeIt->second;
+    auto &times = timesIt->second;
+    const int length = static_cast<int>(std::min(route.size(), times.size()));
+    if (startIndex < 0 || startIndex >= length || offset == 0) return;
+    if (!std::isfinite(offset)) throw std::invalid_argument("Nonfinite timing offset");
+    const auto oldTimes = times;
+    auto [registry, inserted] = mVehicleFlowRecorded.try_emplace(vehID, length, std::pair{false, false});
+    auto &recorded = registry->second;
+    if (recorded.size() < length) recorded.resize(length, {false, false});
+    for (int idx = startIndex; idx < length; ++idx) {
+        const int edge = route[idx];
+        if (mOriginalGraph.getEdge(edge).inCluster(mClusterID)) {
+            auto &flows = mEdgeFlows[edge];
+            auto moveEvent = [&](double oldTime, bool inflow) {
+                const int oldInterval = timeToInterval(oldTime);
+                // Elapsed events have already been discarded by nextInterval.
+                // Never recreate them by clamping them into interval zero.
+                auto &isRecorded = inflow ? recorded[idx].first : recorded[idx].second;
+                if (oldInterval < 0 || oldInterval >= flows.size()) isRecorded = false;
+                if (!isRecorded) return;
+                auto &oldCount = inflow ? flows[oldInterval].first : flows[oldInterval].second;
+                --oldCount;
+                const int newInterval = timeToInterval(oldTime + offset);
+                if (newInterval >= 0) {
+                    if (flows.size() <= newInterval) flows.resize(newInterval + 1, {0, 0});
+                    auto &newCount = inflow ? flows[newInterval].first : flows[newInterval].second;
+                    ++newCount;
+                } else {
+                    isRecorded = false;
+                }
+            };
+            moveEvent(oldTimes[idx], false);
+            // The entry into the first shifted edge has already happened and is unchanged.
+            if (idx > startIndex) moveEvent(oldTimes[idx - 1], true);
+        }
+        times[idx] = oldTimes[idx] + offset;
     }
 }

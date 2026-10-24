@@ -107,6 +107,12 @@ struct hierLexCompare {
     }
 };
 
+struct RouteCandidate {
+    std::vector<double> parameters;
+    // Full search sequence identifies both the finder and its retained labels.
+    std::vector<int> clusterSequence;
+};
+
 /**
  * @class Router
  * @brief Router class that handles dynamic routing in its own cluster
@@ -116,6 +122,7 @@ struct hierLexCompare {
  * agent with own MPI thread and assigned area of the road network.
  */
 class Router {
+    friend struct RouterTestAccess;
    private:
     /// Total number of Rotuer agents in the system
     int NUM_AGENTS = -1;
@@ -139,6 +146,9 @@ class Router {
     /// Map of vehicle IDs to their expected arrival times on the route edges
     /// (maps to mVehicleRoutes)
     std::unordered_map<int, std::vector<double>> mVehicleTimes;
+    // Per route index: whether its inflow/outflow is still represented in mEdgeFlows.
+    // Timestamps alone cannot identify events discarded before a later delay.
+    std::unordered_map<int, std::vector<std::pair<bool, bool>>> mVehicleFlowRecorded;
     /// Map of vehicle IDs to their current positions on the route (maps to
     /// mVehicleRoutes)
     std::unordered_map<int, int> mVehiclePositions;  // in index on the route
@@ -206,11 +216,11 @@ class Router {
 
     /** @brief Predict dynamic parameters (density, traversal time, fuel
      * consumption) for the given cover edge at the given time */
-    std::tuple<double, double, double> predictDynamicParameters(const CoverEdge &edge, int enterTime);
+    std::tuple<double, double, double> predictDynamicParameters(const CoverEdge &edge, double enterTime);
 
     /** @brief Predict dynamic parameters (density, speed, fuel consumption) for
      * the given edge at the given time */
-    std::tuple<double, double, double> predictDynamicParameters(const Edge &edge, int enterTime);
+    std::tuple<double, double, double> predictDynamicParameters(const Edge &edge, double enterTime);
 
     // Utility for routing
     // =============================================================================================
@@ -230,7 +240,7 @@ class Router {
     /** @brief Record provided route into inner memory and update dynamic
      * parameters */
     void recordRoute(int vehID, const std::vector<int> &route, std::vector<double> times,
-                     const std::vector<double> &priorities, int currentTime);
+                     const std::vector<double> &priorities, double currentTime);
 
     // Planning functions
     // ==============================================================================================
@@ -265,6 +275,11 @@ class Router {
         std::optional<
             std::unordered_map<int, std::unordered_map<int, std::set<std::shared_ptr<hierLabel>, hierLexCompare>>>>
             openLabels = {}) const;
+
+    RouteCandidate selectBestCandidate(const std::vector<RouteCandidate> &candidates,
+                                       const std::vector<double> &priorities);
+    bool reusesOriginalEdge(const std::shared_ptr<hierLabel> &currentLabel, const CoverEdge &nextEdge) const;
+    void applyTimeOffset(int vehID, double offset, int startIndex);
 
     /** @brief Expand the label via the given edge */
     std::shared_ptr<hierLabel> expandLabel(const std::shared_ptr<hierLabel> &currentLabel,
@@ -356,10 +371,10 @@ class Router {
 
     /** @brief Send message that requested route could not be found */
     void sendAcceptedRoute(int toCluster, int vehID, const std::vector<double> &priorities,
-                           const std::vector<double> &route) const;
+                           const RouteCandidate &route) const;
 
     /** @brief Receive message that requested route could not be found */
-    std::tuple<int, std::vector<double>, std::vector<double>> receiveAcceptedRoute(int fromCluster,
+    std::tuple<int, std::vector<double>, RouteCandidate> receiveAcceptedRoute(int fromCluster,
                                                                                    const MPI_Status &status) const;
 
     // Found route
@@ -367,10 +382,10 @@ class Router {
 
     /** @brief Send message with found routes */
     void sendFoundRoutes(int toCluster, int vehID, std::vector<int> clusterSequence,
-                         const std::vector<std::vector<double>> &routes);
+                         const std::vector<RouteCandidate> &routes);
 
     /** @brief Receive message with found routes */
-    std::tuple<int, std::vector<int>, std::vector<std::vector<double>>> receiveFoundRoutes(int fromCluster,
+    std::tuple<int, std::vector<int>, std::vector<RouteCandidate>> receiveFoundRoutes(int fromCluster,
                                                                                            const MPI_Status &status);
 
     // Activity status for master process

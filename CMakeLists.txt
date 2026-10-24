@@ -47,12 +47,25 @@ if(BUILD_TESTING)
     target_include_directories(model_loading PRIVATE "${XGBOOST_INCLUDE_DIR}")
     target_link_libraries(model_loading PRIVATE "${XGBOOST_LIBRARY}")
     add_test(NAME model_loading COMMAND model_loading "${CMAKE_CURRENT_SOURCE_DIR}/scenarios")
+    add_executable(router_regression tests/router_regression.cpp CoverEdge.cpp CoverGraph.cpp Router.cpp
+        TrafficEstimator.cpp SpeedEstimator.cpp FuelEstimator.cpp)
+    target_include_directories(router_regression PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${XGBOOST_INCLUDE_DIR}")
+    target_link_libraries(router_regression PRIVATE MPI::MPI_CXX "${XGBOOST_LIBRARY}")
+    add_test(NAME router_state COMMAND router_regression "${CMAKE_CURRENT_SOURCE_DIR}/scenarios")
+    add_test(NAME router_mpi COMMAND "${MPIEXEC_EXECUTABLE}" "${MPIEXEC_NUMPROC_FLAG}" 3
+        ${MPIEXEC_PREFLAGS} $<TARGET_FILE:router_regression> "${CMAKE_CURRENT_SOURCE_DIR}/scenarios" --mpi ${MPIEXEC_POSTFLAGS})
+    set_tests_properties(router_state router_mpi PROPERTIES TIMEOUT 45)
     add_test(NAME cli_help COMMAND MASHierarchicalSystem --help)
     add_test(NAME cli_missing_arguments COMMAND MASHierarchicalSystem)
     set_tests_properties(cli_missing_arguments PROPERTIES WILL_FAIL TRUE)
     option(ENABLE_SUMO_SMOKE_TEST "Run a short xgrid simulation with two MPI processes" OFF)
     if(ENABLE_SUMO_SMOKE_TEST)
         find_program(SUMO_EXECUTABLE sumo HINTS "${SUMO_HOME}/bin" REQUIRED)
+        add_test(NAME mpi_model_failure COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/mpi_model_failure.py"
+            --binary $<TARGET_FILE:MASHierarchicalSystem> --mpiexec "${MPIEXEC_EXECUTABLE}"
+            --sumo "${SUMO_EXECUTABLE}" --scenario "${CMAKE_CURRENT_SOURCE_DIR}/scenarios/xgrid")
+        set_tests_properties(mpi_model_failure PROPERTIES TIMEOUT 30)
         add_test(NAME xgrid_smoke COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_example.py"
             --binary $<TARGET_FILE:MASHierarchicalSystem>

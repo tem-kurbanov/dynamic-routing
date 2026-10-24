@@ -12,12 +12,9 @@
 #include <fstream>
 #include <iostream>
 
-TrafficEstimator::TrafficEstimator(const std::string &pathToModel) {
-    BoosterHandle booster;
-    XGBoosterCreate(nullptr, 0, &booster);
-    XGBoosterLoadModel(booster, pathToModel.c_str());
-    mBooster = booster;
-    std::cout << "Density model loaded from " + pathToModel << std::endl;
+TrafficEstimator::TrafficEstimator(const std::string &pathToModel)
+    : mBooster(estimator::loadModel(pathToModel, 8)) {
+    std::cout << "Traffic model loaded from " + pathToModel << std::endl;
 }
 
 double TrafficEstimator::predictDensity(const Edge &edge, std::pair<int, int> flows, double currentDensity) {
@@ -27,21 +24,9 @@ double TrafficEstimator::predictDensity(const Edge &edge, std::pair<int, int> fl
                                   static_cast<float>(edge.getNumLanes()), static_cast<float>(edge.getSpeedLimit()),
                                   static_cast<float>(edge.getTlsCoeff()), static_cast<float>(currentDensity)});
 
-    DMatrixHandle dtest;
-    XGDMatrixCreateFromMat(queryData.data(), 1, mNumFeatures, -1, &dtest);
-
-    // Run prediction
-    bst_ulong out_len;
-    const float *out_result;
-    XGBoosterPredict(mBooster, dtest, 0, 0, 0, &out_len, &out_result);
-
-    // Apply inverse logit transformation (sigmoid)
-    double transformed_pred = 1.0 / (1.0 + std::exp(-out_result[0]));
-
-    // Clean up
-    XGDMatrixFree(dtest);
-
-    return transformed_pred;
+    const double raw = estimator::predict(mBooster.get(), queryData, 1, mNumFeatures).at(0);
+    // Preserve the provided models' inverse-logit target transformation.
+    return 1.0 / (1.0 + std::exp(-raw));
 }
 
 std::vector<double> TrafficEstimator::toContiguousVector(const std::vector<std::vector<double>> &data) {

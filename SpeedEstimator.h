@@ -5,7 +5,7 @@
 #ifndef SPEEDESTIMATOR_H
 #define SPEEDESTIMATOR_H
 
-#include <xgboost/c_api.h>
+#include "EstimatorSupport.h"
 
 #include <memory>
 #include <unordered_map>
@@ -20,7 +20,7 @@
  */
 class SpeedEstimator {
    private:
-    BoosterHandle mBooster;  ///< XGBoost booster handle
+    estimator::Booster mBooster;  ///< XGBoost booster handle
 
     int mNumFeatures = 6;  ///< Number of features expected by the model
 

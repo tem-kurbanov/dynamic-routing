@@ -2,7 +2,7 @@
 #ifndef HIERARCHICALSYSTEM_TRAFFICESTIMATOR_H
 #define HIERARCHICALSYSTEM_TRAFFICESTIMATOR_H
 
-#include <xgboost/c_api.h>
+#include "EstimatorSupport.h"
 
 #include <memory>
 #include <unordered_map>
@@ -17,7 +17,7 @@
  */
 class TrafficEstimator {
    private:
-    BoosterHandle mBooster;  ///< XGBoost booster handle
+    estimator::Booster mBooster;  ///< XGBoost booster handle
 
     int mNumFeatures = 8;  ///< Number of features expected by the model
 
