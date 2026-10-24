@@ -137,6 +137,14 @@ This is a research implementation. Further validation is needed for sustained co
 | `serializations.h` | MPI message tags and data structures |
 | `scripts/`, `tests/` | Setup, bounded example runner and verification |
 
+## Authorship and AI assistance
+
+The research, architecture, algorithms, and original implementation were developed without AI assistance. AI tools were used subsequently for repository presentation and documentation, along with supporting build, test, and CI tooling.
+
 ## Citation and licensing
+
+This project uses [Eclipse SUMO](https://github.com/eclipse-sumo/sumo). Following its [recommended citation](https://github.com/eclipse-sumo/sumo/blob/main/CITATION.cff):
+
+Pablo Alvarez Lopez et al. [*Microscopic Traffic Simulation using SUMO*](https://doi.org/10.1109/ITSC.2018.8569938). In *2018 21st International Conference on Intelligent Transportation Systems (ITSC)*, pp. 2575–2582. IEEE, 2018.
 
 The project's own code, documentation, xgrid assets, and pretrained models are licensed under the [MIT License](LICENSE). The adapted InTAS scenario retains its GPL terms, and external dependencies retain their own notices. See [THIRD_PARTY.md](THIRD_PARTY.md) for scope and provenance, and [CITATION.cff](CITATION.cff) for the paper citation.
