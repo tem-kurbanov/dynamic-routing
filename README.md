@@ -8,21 +8,9 @@ The planner searches for Pareto alternatives across **distance, travel time, fue
 
 ## How it works
 
-```mermaid
-flowchart TB
-    SUMO[SUMO traffic simulation] <-->|TraCI| MA[Master agent]
-    MA -->|Routing requests and traffic updates| AGENTS
-    AGENTS -->|Complete routes| MA
+![Traffic routing architecture: SUMO simulation, a master agent, and cooperating area control agents](docs/images/architecture.png)
 
-    subgraph AGENTS["Cooperating area agents: 1 ... N"]
-        direction LR
-        A1[Area agent 1] <-->|Partial routes and planning tokens| A2[Area agent 2]
-        A2 <-.-> MORE["..."]
-        MORE <-.-> AN[Area agent N]
-    end
-```
-
-The master advances SUMO and distributes routing requests and traffic updates to the area agents. Neighboring agents exchange partial routes and planning tokens to extend searches across area boundaries. Once a route is complete, the originating area agent returns it to the master for assignment in SUMO. Every area agent performs its own hierarchical label-setting search and traffic prediction, and records chosen routes to update future traffic expectations. The diagram represents an arbitrary number of agents; the bundled scenario partitions support one to four. Position synchronization runs every 20 seconds in the example; congestion-triggered rerouting is requested every 60 seconds.
+The master advances SUMO and distributes routing requests and traffic updates to the area agents. Neighboring agents exchange partial routes and planning tokens to extend searches across area boundaries. Once a route is complete, the originating area agent returns it to the master for assignment in SUMO. Every area agent performs its own hierarchical label-setting search and traffic prediction, and records chosen routes to update future traffic expectations. The illustration shows three area agents; the architecture supports additional agents, and the bundled scenario partitions support one to four. Position synchronization runs every 20 seconds in the example; congestion-triggered rerouting is requested every 60 seconds.
 
 ## Build and run the xgrid example
 
