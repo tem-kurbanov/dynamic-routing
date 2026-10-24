@@ -18,3 +18,5 @@ __pycache__/
 # Historical InTAS inputs not used by the active configuration; retained locally.
 /scenarios/intas/combined_routes.rou.xml
 /scenarios/intas/scenario_original.sumocfg
+# Local paper sources are not part of the software repository.
+/AAMAS_2026_Dynamic_Routing/

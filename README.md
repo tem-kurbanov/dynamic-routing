@@ -4,23 +4,25 @@ C++ research software for routing urban traffic with cooperating area-control ag
 
 The planner searches for Pareto alternatives across **distance, travel time, fuel consumption, and edge count**, then selects a route using ranked preferences. SUMO provides the traffic simulation through TraCI.
 
-**Paper:** *Multiagent System for Dynamic Multicriteria Traffic Routing in Urban Environments*, AAMAS 2026 — Temirlan Kurbanov, Adéla Kubíková, Jiří Vokřínek, and Franziska Klügl. [Manuscript source](AAMAS_2026_Dynamic_Routing/main.tex) · [Citation metadata](CITATION.cff)
+**Paper:** [*Multiagent System for Dynamic Multicriteria Traffic Routing in Urban Environments*](https://dl.acm.org/doi/10.65109/MCOL3382), AAMAS 2026 — Temirlan Kurbanov, Adéla Kubíková, Jiří Vokřínek, and Franziska Klügl. [Citation metadata](CITATION.cff)
 
 ## How it works
 
 ```mermaid
-flowchart LR
-    SUMO[SUMO traffic simulation] <-->|TraCI| MA[Master process]
-    MA <-->|Departures, positions, routes| A[Area agent 1]
-    MA <-->|Departures, positions, routes| B[Area agent 2]
-    A <-->|Partial routes and planning tokens| B
-    A --> P[Hierarchical multicriteria search]
-    B --> Q[Hierarchical multicriteria search]
-    P --> X[Density, speed and fuel predictions]
-    Q --> Y[Density, speed and fuel predictions]
+flowchart TB
+    SUMO[SUMO traffic simulation] <-->|TraCI| MA[Master agent]
+    MA -->|Routing requests and traffic updates| AGENTS
+    AGENTS -->|Complete routes| MA
+
+    subgraph AGENTS["Cooperating area agents: 1 ... N"]
+        direction LR
+        A1[Area agent 1] <-->|Partial routes and planning tokens| A2[Area agent 2]
+        A2 <-.-> MORE["..."]
+        MORE <-.-> AN[Area agent N]
+    end
 ```
 
-The master advances SUMO and distributes vehicle requests. Area agents perform hierarchical label-setting search over path-cover graphs, cooperate across area boundaries, and record chosen routes to update future traffic expectations. Position synchronization runs every 20 seconds in the example; congestion-triggered rerouting is requested every 60 seconds.
+The master advances SUMO and distributes routing requests and traffic updates to the area agents. Neighboring agents exchange partial routes and planning tokens to extend searches across area boundaries. Once a route is complete, the originating area agent returns it to the master for assignment in SUMO. Every area agent performs its own hierarchical label-setting search and traffic prediction, and records chosen routes to update future traffic expectations. The diagram represents an arbitrary number of agents; the bundled scenario partitions support one to four. Position synchronization runs every 20 seconds in the example; congestion-triggered rerouting is requested every 60 seconds.
 
 ## Build and run the xgrid example
 
@@ -160,4 +162,4 @@ This is a research implementation. Further validation is needed for sustained co
 
 ## Citation and licensing
 
-The project's own code, documentation, xgrid assets, and pretrained models are licensed under the [MIT License](LICENSE). The adapted InTAS scenario retains its GPL terms, and manuscript material and external dependencies retain their own notices. See [THIRD_PARTY.md](THIRD_PARTY.md) for scope and provenance, and [CITATION.cff](CITATION.cff) for the paper citation.
+The project's own code, documentation, xgrid assets, and pretrained models are licensed under the [MIT License](LICENSE). The adapted InTAS scenario retains its GPL terms, and external dependencies retain their own notices. See [THIRD_PARTY.md](THIRD_PARTY.md) for scope and provenance, and [CITATION.cff](CITATION.cff) for the paper citation.
