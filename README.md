@@ -42,7 +42,7 @@ python3 scripts/run_example.py
 
 The helper uses an existing `../sumo` checkout if it matches the pinned commit, otherwise `--fetch` downloads the pinned fork. It downloads and verifies the **XGBoost 3.0.5** source archive, then builds CPU-only libraries locally under `build/deps/`. It leaves sibling source trees unchanged. Internet access is needed for missing sources; subsequent builds can omit `--fetch`.
 
-The default example uses `scenarios/xgrid`, one area agent plus one master process, and 120 simulation steps. It is a bounded demonstration, not an experiment run. It writes each run to a fresh directory under `build/example-output/`:
+The default example uses `scenarios/xgrid`, one area agent plus one master process, and 120 simulation steps. This is a smoke check for startup, model loading, agent communication, and simulation output. It is too short to demonstrate traffic optimization or measure its benefits. Each run writes to a fresh directory under `build/example-output/`:
 
 | File | Contents |
 |---|---|
@@ -51,7 +51,7 @@ The default example uses `scenarios/xgrid`, one area agent plus one master proce
 | `edgedata.xml` | Edge statistics produced by SUMO |
 | `vehroutes.xml` | Vehicle routes, including unfinished trips at the stopping point |
 
-The runner checks the process exit status, parses all three XML files, and requires recorded vehicle routes. For a cooperative example with two area agents:
+The runner checks the process exit status, parses all three XML files, and requires recorded vehicle routes. For a short cooperative smoke check with two area agents:
 
 ```bash
 python3 scripts/run_example.py --agents 2 --steps 30
@@ -70,17 +70,21 @@ The current application reserves a 1 GiB MPI send buffer per process. Allow at l
 | xgrid models | Model files record XGBoost **3.0.0** |
 | InTAS models | Model files record XGBoost **3.0.5** |
 
-The supplied scenarios use the fork's `time-to-teleport.disable-jam` option. A stock SUMO package may not accept it, so the source helper and CI use the pinned fork. Model-file versions identify the library that saved each model; a separate original training environment is not bundled. XGBoost documents backward compatibility for saved models in its [Model IO guide](https://xgboost.readthedocs.io/en/stable/tutorials/saving_model.html#a-note-on-backward-compatibility-of-models-and-memory-snapshots). Native tests load and predict with all nine bundled model files using 3.0.5.
+XGBoost is pinned to **3.0.5** for the provided models and the original experiment environment. The supplied InTAS models were generated with 3.0.5; the xgrid files record 3.0.0 and are compatible with the pinned library. This pin applies to the bundled model set, not to the routing algorithm itself.
+
+If you train your own models, you can choose whichever XGBoost version you prefer and build against the matching inference library. Keep the expected feature order and output transforms, adapting the estimator integration if your chosen version changes the C API. The setup helper and bundled-model tests remain pinned to 3.0.5; use the manual CMake configuration below for a custom version.
+
+The supplied scenarios use the fork's `time-to-teleport.disable-jam` option. A stock SUMO package may not accept it, so the source helper and CI use the pinned fork.
 
 An existing local XGBoost source tree can be supplied with `--xgboost-source /path/to/xgboost`; it must identify itself as 3.0.5. For a SUMO checkout in another location, use `--sumo-source /path/to/sumo`.
 
-If the dependencies are already built, configure their locations explicitly:
+If the dependencies are already built, configure their locations explicitly. For your own models and XGBoost version, disable the bundled test suite with `BUILD_TESTING=OFF`:
 
 ```bash
-cmake -S . -B build-custom -DCMAKE_BUILD_TYPE=Release \
+cmake -S . -B build-custom -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
   -DSUMO_HOME=/path/to/sumo-source \
   -DSUMO_LIBRARY_DIR=/path/to/sumo-library-directory \
-  -DXGBOOST_ROOT=/path/to/xgboost-3.0.5-source \
+  -DXGBOOST_ROOT=/path/to/your-xgboost-source \
   -DXGBOOST_LIBRARY_DIR=/path/to/xgboost-library-directory
 cmake --build build-custom --parallel 4
 ```
@@ -114,21 +118,6 @@ mpiexec -n 2 build/MASHierarchicalSystem \
 `--help` lists all options. Direct invocation writes outputs under the scenario directory by default; `--tripinfo`, `--edgedata`, and `--vehroutes` also accept absolute paths to existing output directories. The Python runner handles directory creation and output isolation. Use `--scenario scenarios/intas` with the runner to select InTAS; it is substantially larger and may need a longer timeout.
 
 For Slurm, submit `sbatch submit_jobs.sh` from the repository root after configuring the MPI/SUMO environment. The script defaults to a short xgrid run and two tasks. When overriding `AGENTS`, request `AGENTS + 1` tasks with `sbatch --ntasks=...`.
-
-## Verification
-
-The [GitHub Actions workflow](.github/workflows/ci.yml) defines two jobs: dependency-free regression checks under sanitizers, and a Linux build of the pinned dependencies followed by native model-loading, CLI, and xgrid smoke tests. Smoke artifacts are retained for inspection. Workflow configuration is not evidence of a successful hosted CI run; check the repository's Actions results.
-
-Quick checks do not need SUMO, MPI, or XGBoost:
-
-```bash
-cmake -S . -B build-tests -DBUILD_ROUTER=OFF
-ctest --test-dir build-tests --output-on-failure
-```
-
-These checks exercise the actual reroute-selection and reactive-orchestration method bodies against a small state fixture, plus scenario references, partition indices, model feature counts, saved-model versions, setup-cache reuse, interrupted-fetch retries, and dependency rejection. The fixture uses the real graph types but replaces prediction, replanning, and MPI boundaries. It is not an end-to-end correctness proof.
-
-Full CTest runs additionally verify the XGBoost runtime version, model inference, CLI startup, and (when enabled) one- and two-agent simulations. The smoke cases use 30 simulation steps. The default example runs 120 steps and reaches periodic synchronization and rerouting calls; it does not guarantee that congestion triggers a reactive reroute.
 
 ## Research context and limits
 
